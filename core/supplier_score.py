@@ -18,10 +18,20 @@ BADGE_POINTS = {"Verified supplier": 8, "Trade assurance": 7, "Onsite inspection
                 "TrustPass member": 3}
 
 
+MIN_KNOWN_FACTORS = 2
+
+
 def supplier_score(s):
-    """Return (score or None, [(reason, points), ...])."""
+    """Return (score or None, [(reason, points), ...]).
+    With fewer than 2 known factors there is not enough data: the score is None ("n/a"),
+    instead of the neutral starting value 50 looking like a real middling score."""
     if not s:
         return None, [("No supplier data available", 0)]
+    known = sum(1 for v in (s.get("type"), s.get("years"), s.get("response_rate"),
+                            s.get("repeat_buyer_rate"), s.get("disputes")) if v is not None)
+    known += 1 if s.get("badges") else 0
+    if known < MIN_KNOWN_FACTORS:
+        return None, [("Not enough supplier data to score this seller yet", 0)]
     score = 50
     reasons = []
 

@@ -9,18 +9,37 @@ Change MODEL here to switch every feature to another model.
 """
 
 import json
+import os
+import threading
 
 MODEL = "claude-opus-5-5"
 _api_key = None
 
+# Credentials the SDK can find on its own besides an explicit key
+_CRED_ENV = ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_PROFILE",
+             "ANTHROPIC_FEDERATION_RULE_ID", "ANTHROPIC_IDENTITY_TOKEN", "ANTHROPIC_IDENTITY_TOKEN_FILE")
+
+
+def has_credentials():
+    """Cheap check before loading the SDK (importing it takes several seconds)."""
+    if _api_key or any(os.getenv(v) for v in _CRED_ENV):
+        return True
+    return os.path.isdir(os.path.join(os.path.expanduser("~"), ".config", "anthropic"))  # `ant auth login`
+
 
 def set_api_key(key):
+    """Set the key; when there are credentials, load the SDK in the background so the
+    first AI call doesn't wait for the import."""
     global _api_key
     _api_key = key or None
+    if has_credentials():
+        threading.Thread(target=lambda: __import__("anthropic"), daemon=True).start()
 
 
 def ask(system, messages, schema=None, effort="low", max_tokens=8000):
     """One Messages API call. With `schema`, returns the parsed JSON object; otherwise the text."""
+    if not has_credentials():
+        return None, "no API key configured"
     try:
         import anthropic
     except ImportError:

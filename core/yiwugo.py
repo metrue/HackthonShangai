@@ -14,6 +14,8 @@ from __future__ import annotations
 import json
 import os
 import re
+import threading
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -138,65 +140,180 @@ def listing_from_api(item: dict, detail: dict | None) -> dict | None:
     }
 
 
-def _detail(product_id: str, csrf: str, referer: str) -> dict | None:
+# ---------------------------------------------------------------------------
+# Network. Every Yiwugo request takes ~5 s from Europe, so:
+#  - the search token (CSRF + cookies) is fetched once, reused for 20 minutes,
+#    and warmed up in the background when the app starts (warm_up)
+#  - the list is built from the search rows alone; listing details (price tiers,
+#    attributes, years) are fetched in the background and kept for 30 minutes
+# ---------------------------------------------------------------------------
+
+TOKEN_TTL = 20 * 60
+DETAIL_TTL = 30 * 60
+_lock = threading.Lock()
+_token = None            # {"opener", "csrf", "referer", "at"}
+_token_thread = None
+_details: dict[str, tuple[float, dict | None]] = {}   # product id -> (time, detail)
+_pool = ThreadPoolExecutor(max_workers=8)
+
+
+def _new_token():
+    page = "https://www.yiwugo.com/search?q=" + urllib.parse.quote("义乌")
     opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor())
-    raw = _get(
-        f"https://www.yiwugo.com/api/product/detail.htm?productId={product_id}",
-        headers={"Referer": referer, "x-csrf-token": csrf, "Accept": "application/json"},
-        opener=opener,
-    )
+    match = re.search(r'"csrf":"([^"]+)"', _get(page, opener=opener))
+    if not match:
+        raise ValueError("no search token on the Yiwugo page")
+    return {"opener": opener, "csrf": match.group(1), "referer": page, "at": time.monotonic()}
+
+
+def _get_token(force=False):
+    global _token
+    with _lock:
+        tok = _token
+        thread = _token_thread
+    if not force and tok and time.monotonic() - tok["at"] < TOKEN_TTL:
+        return tok
+    if not force and thread is not None and thread.is_alive():
+        thread.join(timeout=12)          # the warm-up is already fetching it
+        with _lock:
+            tok = _token
+        if tok and time.monotonic() - tok["at"] < TOKEN_TTL:
+            return tok
+    tok = _new_token()
+    with _lock:
+        _token = tok
+    return tok
+
+
+def warm_up():
+    """Fetch the search token in the background (call at app start; never blocks)."""
+    global _token_thread
+    if not enabled():
+        return
+
+    def run():
+        global _token
+        try:
+            tok = _new_token()
+            with _lock:
+                _token = tok
+        except Exception:
+            pass                          # the first search will try again
+
+    with _lock:
+        fresh = _token and time.monotonic() - _token["at"] < TOKEN_TTL
+        running = _token_thread is not None and _token_thread.is_alive()
+        if fresh or running:
+            return
+        _token_thread = threading.Thread(target=run, daemon=True)
+        _token_thread.start()
+
+
+def _api(url, tok):
+    return _get(url, headers={"Referer": tok["referer"], "x-csrf-token": tok["csrf"],
+                              "Accept": "application/json"}, opener=tok["opener"])
+
+
+def _search_rows(query, tok):
+    api = "https://www.yiwugo.com/api/search/s.htm?" + urllib.parse.urlencode({
+        "q": query, "appid": "6", "cpage": "1", "pageSize": "20", "checkLabel": "1",
+        "searchMethod": "embedding", "source": "pc",
+    })
+    content = json.loads(_api(api, tok)).get("content")
+    if not isinstance(content, dict):
+        raise ValueError("unexpected search answer")
+    return content.get("prslist") or []
+
+
+def _fetch_detail(product_id: str) -> dict | None:
+    tok = _get_token()
+    raw = _api(f"https://www.yiwugo.com/api/product/detail.htm?productId={product_id}", tok)
     content = json.loads(raw).get("content")
-    return content if isinstance(content, dict) else None
+    detail = content if isinstance(content, dict) else None
+    with _lock:
+        _details[product_id] = (time.monotonic(), detail)
+    return detail
 
 
-def search(query: str, limit: int = 8) -> list[dict]:
-    """Priced listings from the first page of Yiwugo search, in the site's order."""
+def _cached_detail(product_id):
+    with _lock:
+        hit = _details.get(product_id)
+    if hit and time.monotonic() - hit[0] < DETAIL_TTL:
+        return True, hit[1]
+    return False, None
+
+
+def _offer(item, detail, has_detail):
+    offer = listing_from_api(item, detail)
+    if offer:
+        offer["_row"] = item                      # kept to rebuild the listing with its details
+        offer["details_loaded"] = has_detail
+        market = str(item.get("marketOrAdress") or item.get("marketinfo") or "")
+        if market.startswith("义乌"):            # the shop's booth is in a Yiwu market
+            offer["supplier"]["city"] = "Yiwu"
+            offer["market"] = item.get("marketinfo") or market
+    return offer
+
+
+def search(query: str, limit: int = 8, details: bool = False) -> list[dict]:
+    """Priced listings from the first page of Yiwugo search, in the site's order.
+    details=False (default): built from the search rows at once; details are fetched in
+    the background (prefetch) and used when available. details=True waits for them."""
     query = (query or "").strip()
     if not query:
         return []
-    page = "https://www.yiwugo.com/search?q=" + urllib.parse.quote(query)
-    opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor())
-    html = _get(page, opener=opener)
-    match = re.search(r'"csrf":"([^"]+)"', html)
-    if not match:
-        return []
-    csrf = match.group(1)
-    api = "https://www.yiwugo.com/api/search/s.htm?" + urllib.parse.urlencode({
-        "q": query,
-        "appid": "6",
-        "cpage": "1",
-        "pageSize": "20",
-        "checkLabel": "1",
-        "searchMethod": "embedding",
-        "source": "pc",
-    })
-    raw = _get(
-        api,
-        headers={"Referer": page, "x-csrf-token": csrf, "Accept": "application/json"},
-        opener=opener,
-    )
-    items = (json.loads(raw).get("content") or {}).get("prslist") or []
+    tok = _get_token()
+    try:
+        rows = _search_rows(query, tok)
+    except (ValueError, json.JSONDecodeError, urllib.error.HTTPError):
+        rows = _search_rows(query, _get_token(force=True))   # token expired: renew once
     chosen = []
-    for item in items:
+    for item in rows:
         if _is_ad(item) or yuan_from_fen(item.get("sellPrice")) is None:
             continue
         chosen.append(item)
         if len(chosen) >= limit:
             break
-    details: dict[str, dict | None] = {}
-    with ThreadPoolExecutor(max_workers=8) as pool:
-        jobs = {
-            str(item["id"]): pool.submit(_detail, str(item["id"]), csrf, page)
-            for item in chosen
-        }
-        for pid, job in jobs.items():
-            try:
-                details[pid] = job.result()
-            except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, ValueError):
-                details[pid] = None
+    ids = [str(item["id"]) for item in chosen]
+    if details:
+        list(_pool.map(_safe_detail, ids))
+    else:
+        prefetch(ids)
     offers = []
     for item in chosen:
-        offer = listing_from_api(item, details.get(str(item["id"])))
+        has, detail = _cached_detail(str(item["id"]))
+        offer = _offer(item, detail, has)
         if offer:
             offers.append(offer)
     return offers
+
+
+def _safe_detail(product_id):
+    try:
+        return _fetch_detail(product_id)
+    except Exception:
+        return None
+
+
+def prefetch(product_ids):
+    """Fetch listing details in the background (never blocks)."""
+    for pid in product_ids:
+        if not _cached_detail(pid)[0]:
+            _pool.submit(_safe_detail, pid)
+
+
+def with_details(offer: dict, wait: bool = True) -> dict:
+    """The listing rebuilt with its details (price tiers, attributes, years)."""
+    if offer.get("details_loaded") or not offer.get("_row"):
+        return offer
+    pid = str(offer["_row"]["id"])
+    has, detail = _cached_detail(pid)
+    if not has and wait:
+        detail, has = _safe_detail(pid), True
+    if not has:
+        return offer
+    rebuilt = _offer(offer["_row"], detail, True) or offer
+    for key in ("title_en", "title_en_source", "category", "category_guessed"):
+        if key in offer:
+            rebuilt[key] = offer[key]
+    return rebuilt

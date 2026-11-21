@@ -130,6 +130,24 @@ def page_results():
         via_translation = bool(base) and plan["detected_language"].lower() != "english"
     if not base:
         base = search(S.q)
+    # ---- header first, so the page shows something while Yiwugo answers
+    budget_txt = f" · max {money(S.budget, sym)}/unit" if S.budget else ""
+    st.markdown(
+        f"<div style='display:flex;justify-content:space-between'>"
+        f"<a class='rh-back' href='{link(view='home', tab='search', pid=None)}' target='_self'>← New search</a>"
+        f"<span style='font-size:.9rem'>{messages_link()}</span></div>"
+        f"<div class='rh-q'>“{esc(S.q) or 'All products'}”</div>"
+        f"<div class='rh-sub'>{S.qty:,} units · to {S.country} · {S.cur}{budget_txt}</div>",
+        unsafe_allow_html=True,
+    )
+    translation_strip(plan, reason, via_translation)
+    with st.popover("Change quantity, country, currency", width="content"):
+        bound(st.number_input, "Quantity", "qty", min_value=1, step=50)
+        bound(st.selectbox, "Delivery country", "country", options=list(COUNTRIES))
+        bound(st.selectbox, "Currency", "cur", options=CURRENCIES, format_func=currency_label)
+        bound(st.number_input, f"Max budget per unit ({S.cur}, 0 = none)", "budget", min_value=0.0, step=0.5)
+
+    # ---- live Yiwugo listings
     live, live_err = [], None
     if (S.q or "").strip():
         zh = ((plan or {}).get("query_zh") or S.q).strip()
@@ -138,6 +156,13 @@ def page_results():
             live, live_err = live_search(zh)
         if live:   # real Yiwugo listings replace the sample Yiwugo ones
             base = [item for item in base if item.get("platform") != "Yiwugo"] + live
+    if live:
+        st.markdown(f"<div class='muted' style='font-size:.8rem'><span class='src-tag live'>Live</span> "
+                    f"{len(live)} listings read from yiwugo.com · other products: sample catalog</div>",
+                    unsafe_allow_html=True)
+    elif live_err and live_err != "off":
+        st.markdown(f"<div class='muted' style='font-size:.8rem'>Live Yiwugo listings: <span class='na'>{NA}</span>"
+                    f" · {esc(live_err)} · showing the sample catalog</div>", unsafe_allow_html=True)
     rows = enrich(base)
 
     # ---- sidebar filters (collapsed by default, out of the way on mobile)
@@ -167,30 +192,6 @@ def page_results():
     if S.budget:
         over_budget = [r for r in filtered if r["ok"] and r["d"]["per_unit"] > S.budget]
         filtered = [r for r in filtered if r not in over_budget]
-
-    # ---- header
-    budget_txt = f" · max {money(S.budget, sym)}/unit" if S.budget else ""
-    st.markdown(
-        f"<div style='display:flex;justify-content:space-between'>"
-        f"<a class='rh-back' href='{link(view='home', tab='search', pid=None)}' target='_self'>← New search</a>"
-        f"<span style='font-size:.9rem'>{messages_link()}</span></div>"
-        f"<div class='rh-q'>“{esc(S.q) or 'All products'}”</div>"
-        f"<div class='rh-sub'>{S.qty:,} units · to {S.country} · {S.cur}{budget_txt}</div>",
-        unsafe_allow_html=True,
-    )
-    translation_strip(plan, reason, via_translation)
-    if live:
-        st.markdown(f"<div class='muted' style='font-size:.8rem'><span class='src-tag live'>Live</span> "
-                    f"{len(live)} listings read from yiwugo.com just now · other products: sample catalog</div>",
-                    unsafe_allow_html=True)
-    elif live_err and live_err != "off":
-        st.markdown(f"<div class='muted' style='font-size:.8rem'>Live Yiwugo listings: <span class='na'>{NA}</span>"
-                    f" · {esc(live_err)} · showing the sample catalog</div>", unsafe_allow_html=True)
-    with st.popover("Change quantity, country, currency", width="content"):
-        bound(st.number_input, "Quantity", "qty", min_value=1, step=50)
-        bound(st.selectbox, "Delivery country", "country", options=list(COUNTRIES))
-        bound(st.selectbox, "Currency", "cur", options=CURRENCIES, format_func=currency_label)
-        bound(st.number_input, f"Max budget per unit ({S.cur}, 0 = none)", "budget", min_value=0.0, step=0.5)
 
     if not base:
         st.warning(f"No products in the sample catalog match “{S.q}”. "

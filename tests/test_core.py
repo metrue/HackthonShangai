@@ -68,6 +68,10 @@ def test_supplier_score_reasons():
     assert ("High dispute rate", -10) in reasons
     score, reasons = supplier_score(get_product("TB-04")["supplier"])
     assert any("not available" in r for r, _ in reasons)
+    # a live listing that only tells the shop name: no score, not a neutral-looking 50
+    assert supplier_score({"name": "某店", "type": None, "years": None, "badges": []})[0] is None
+    assert supplier_score({"name": "某店", "years": 6, "badges": []})[0] is None
+    assert supplier_score({"type": "factory", "years": 6, "badges": []})[0] == 70
 
 
 # ---------------------------------------------------------------- orders

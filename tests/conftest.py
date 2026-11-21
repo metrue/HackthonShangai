@@ -23,6 +23,8 @@ def isolated(tmp_path, monkeypatch):
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     monkeypatch.setattr(pricing, "FX_URLS", [])          # no network: sample rates
     monkeypatch.setattr(yiwugo, "search", lambda *args, **kwargs: [])
+    monkeypatch.setattr(yiwugo, "warm_up", lambda: None)            # never touch yiwugo.com in tests
+    monkeypatch.setattr(yiwugo, "prefetch", lambda ids: None)
     st.cache_data.clear()
     yield
 

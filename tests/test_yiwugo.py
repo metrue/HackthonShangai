@@ -3,9 +3,13 @@ Missing facts stay empty. No test calls yiwugo.com: search results are simulated
 
 from unittest import mock
 
+import json
+
 from conftest import page_text, run_app
-from core import query_translation
+from core import query_translation, yiwugo
 from core.yiwugo import listing_from_api, yuan_from_fen
+from core.yiwugo import search as real_search          # conftest stubs yiwugo.search in every test
+from core.yiwugo import with_details
 
 ITEM = {"id": 940179442, "title": "帆布手提袋", "sellPrice": 430, "startNum": 1000,
         "shopName": "义乌市天汇制袋厂", "picture1": "http://img.example/bag.jpg", "isAd": "0"}
@@ -16,6 +20,62 @@ DETAIL = {"years": 5, "detail": {"productExtendList": [{"name": "材质", "value
 
 def live_listing():
     return listing_from_api(ITEM, DETAIL)
+
+
+# ---------------------------------------------------------------- network logic (Yiwugo simulated)
+class FakeYiwugo:
+    """Answers like yiwugo.com and counts the requests."""
+
+    def __init__(self, expire_first_api_call=False):
+        self.calls = {"page": 0, "search": 0, "detail": 0}
+        self.expire = expire_first_api_call
+        self.token = 0
+
+    def get(self, url, headers=None, opener=None, timeout=8):
+        if "/search?q=" in url:
+            self.calls["page"] += 1
+            self.token += 1
+            return f'<script>{{"csrf":"tok{self.token}"}}</script>'
+        if "/api/search/" in url:
+            self.calls["search"] += 1
+            if self.expire and self.calls["search"] == 1:
+                return "<html>session expired</html>"
+            row = dict(ITEM, marketOrAdress="义乌国际商贸城四区")
+            return json.dumps({"content": {"prslist": [dict(row, isAd="1", id=7), row]}})
+        if "/api/product/detail.htm" in url:
+            self.calls["detail"] += 1
+            return json.dumps({"content": DETAIL})
+        raise AssertionError(url)
+
+
+def fresh_module(monkeypatch, fake):
+    monkeypatch.setattr(yiwugo, "_get", fake.get)
+    monkeypatch.setattr(yiwugo, "_token", None)
+    monkeypatch.setattr(yiwugo, "_details", {})
+
+
+def test_token_reused_and_details_not_awaited(monkeypatch):
+    fake = FakeYiwugo()
+    fresh_module(monkeypatch, fake)
+    first = real_search("帆布袋")
+    real_search("保温杯")
+    assert fake.calls == {"page": 1, "search": 2, "detail": 0}   # one token for both searches
+    assert len(first) == 1                                        # the ad row is skipped
+    p = first[0]
+    assert p["details_loaded"] is False and p["supplier"]["city"] == "Yiwu"
+    assert p["tiers"] == [(1000, 4.3)] and p["material"] is None  # from the search row only
+
+    full = with_details(p)                                         # product page: details now
+    assert fake.calls["detail"] == 1
+    assert full["details_loaded"] is True and full["material"] == "帆布" and full["supplier"]["years"] == 5
+    assert with_details(p)["material"] == "帆布" and fake.calls["detail"] == 1   # cached
+
+
+def test_expired_token_is_renewed_once(monkeypatch):
+    fake = FakeYiwugo(expire_first_api_call=True)
+    fresh_module(monkeypatch, fake)
+    assert len(real_search("帆布袋")) == 1
+    assert fake.calls["page"] == 2 and fake.calls["search"] == 2
 
 
 def test_fen_is_yuan_on_the_page():

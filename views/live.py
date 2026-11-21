@@ -56,7 +56,8 @@ def live_search(query):
     if not query:
         return [], None
     try:
-        items = [dict(p) for p in _fetch(query)]
+        # details fetched in the background since the search are used when already there
+        items = [yiwugo.with_details(dict(p), wait=False) for p in _fetch(query)]
     except _LiveUnavailable as e:
         return [], f"Yiwugo did not respond ({e})"
     _english_titles(items)
@@ -85,15 +86,23 @@ def set_buyer_details(pid, weight_kg=None, category=None):
     extra[pid] = {"weight_kg": weight_kg, "category": category}
 
 
+def _detailed(p):
+    """Live listing with its details (usually already prefetched in the background)."""
+    if not p.get("live") or p.get("details_loaded"):
+        return p
+    with st.spinner("Loading the listing details from Yiwugo…"):
+        p = yiwugo.with_details(p, wait=True)
+    S.setdefault("live_products", {})[p["id"]] = p
+    return p
+
+
 def find_product(pid):
     """A catalog product or a live listing (re-read from Yiwugo after a page reload)."""
     found = get_product(pid) or (S.get("live_products") or {}).get(pid)
-    if found or not str(pid or "").startswith("yw-"):
-        return with_buyer_details(found) if found else None
-    query = (S.get("yiwugo_q") or S.q or "").strip()
-    if not query:
-        return None
-    with st.spinner("Reading the Yiwugo listing…"):
-        live_search(query)
-    found = (S.get("live_products") or {}).get(pid)
-    return with_buyer_details(found) if found else None
+    if not found and str(pid or "").startswith("yw-"):
+        query = (S.get("yiwugo_q") or S.q or "").strip()
+        if query:
+            with st.spinner("Reading the Yiwugo listing…"):
+                live_search(query)
+            found = (S.get("live_products") or {}).get(pid)
+    return with_buyer_details(_detailed(found)) if found else None

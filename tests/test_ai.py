@@ -1,6 +1,7 @@
 """The shared AI wrapper, the query translation and the listing reader (API simulated)."""
 
 import json
+import time
 from types import SimpleNamespace as NS
 from unittest import mock
 
@@ -22,7 +23,8 @@ def fake_response(stop="end_turn", text=json.dumps(PLAN)):
 def call_with(resp):
     client = mock.MagicMock()
     client.beta.messages.create.return_value = resp
-    with mock.patch.object(anthropic, "Anthropic", return_value=client):
+    with mock.patch.object(anthropic, "Anthropic", return_value=client), \
+         mock.patch.object(ai, "_api_key", "test-key"):
         return query_translation.plan_search("borsa di tela con logo"), client
 
 
@@ -39,7 +41,9 @@ def test_refusal_truncation_and_no_key_are_reported():
     assert call_with(fake_response(stop="refusal"))[0] == (None, "the request was declined")
     assert call_with(fake_response(stop="max_tokens"))[0] == (None, "the answer was cut off")
     ai.set_api_key(None)
+    t = time.time()
     assert query_translation.plan_search("borsa") == (None, "no API key configured")
+    assert time.time() - t < 0.5            # answered at once, without loading the SDK
 
 
 # ---------------------------------------------------------------- listing reader

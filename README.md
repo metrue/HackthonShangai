@@ -42,8 +42,10 @@ listings have no weight, so the buyer adds it on the product page to get the del
 (marked "user-provided"). English names come from the AI, or from a small glossary without a key.
 
 This reads Yiwugo's website search, not an official API: it can stop working when Yiwugo changes
-its site, takes ~15 s per new search (cached for 10 minutes), and automated access may conflict with
-Yiwugo's terms. Turn it off with `YIWUGO_LIVE=0`; the app then uses only the sample catalog.
+its site, and automated access may conflict with Yiwugo's terms. Speed: each Yiwugo request takes
+~5 s from Europe, so the search token is fetched in the background at start-up and reused, the list is
+built from the search answer (~5 s per new search, instant when repeated within 10 minutes), and
+listing details are fetched in the background so product pages open at once. Turn it off with `YIWUGO_LIVE=0`; the app then uses only the sample catalog.
 
 ## Tests
 
