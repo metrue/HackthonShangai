@@ -41,6 +41,20 @@ ANTHROPIC_API_KEY = "sk-ant-..."
 
 One API call per distinct search per day (results are cached), model `claude-sonnet-5-5`.
 
+## Messages (chat with suppliers)
+
+"Contact supplier" on a product page opens a chat with the product, quantity, country and
+delivered price loaded; "Messages" opens the inbox. The buyer writes in any language and sees
+the Chinese version (with an English back-translation) before sending; each supplier reply shows
+the Chinese original with key terms highlighted, the English translation, "What they mean" and
+2-3 suggested replies. The deal panel collects price, MOQ, lead time, payment and sample terms
+from the chat and recalculates the delivered price with the negotiated unit price.
+
+For the demo the supplier is played by the AI from the product card, with a hidden floor price
+(85-92% of the list price). Needs the same `ANTHROPIC_API_KEY` as the query translation; model
+`claude-opus-5-5` (change `MODEL` in `llm.py`). Conversations are kept in `conversations.json`
+(git-ignored) so they survive a page reload.
+
 ## Files
 
 - `app.py` – Streamlit UI and navigation
@@ -48,3 +62,5 @@ One API call per distinct search per day (results are cached), model `claude-son
 - `pricing.py` – delivered-price model and supplier score
 - `listing_parser.py` – rule-based extraction from pasted listing text
 - `translation_agent.py` – AI query translation for Chinese marketplaces (optional, needs an API key)
+- `messages.py` – supplier chat: outgoing translation, simulated supplier, reply analysis, deal terms
+- `llm.py` – shared Anthropic API wrapper (returns "not available" reasons instead of failing)

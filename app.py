@@ -2,6 +2,9 @@ import base64
 import html
 import json
 import os
+import random
+import re
+import time
 from urllib.parse import quote, urlencode
 
 import pandas as pd
@@ -14,6 +17,8 @@ from pricing import (COUNTRIES, CURRENCIES, CURRENCY_NAMES, DUTY, MODE_LABEL, SY
                      compare_modes, delivered, fx_rate, refresh_fx, score_colour, score_label,
                      supplier_score)
 from translation_agent import plan_search
+import llm
+import messages as M
 
 st.set_page_config(page_title="SourceScan – China sourcing search", page_icon="🔎", layout="centered",
                    initial_sidebar_state="collapsed")
@@ -50,10 +55,12 @@ a.plain {{color:inherit; text-decoration:none;}}
 .rh-sub {{color:#6b7280; font-size:.9rem;}}
 
 /* ---------- compact rows that stay side by side on phones (marked with .nowrap) */
-div[data-testid="stHorizontalBlock"]:has(.nowrap) {{flex-wrap:nowrap !important; gap:.6rem;}}
-div[data-testid="stHorizontalBlock"]:has(.nowrap) > div {{min-width:0 !important; width:auto !important;
-    flex:1 1 0 !important;}}
-div[data-testid="stHorizontalBlock"]:has(.nowrap) > div:last-child {{flex:0 0 min(40%, 190px) !important;}}
+div[data-testid="stHorizontalBlock"]:has(> div > div[data-testid="stVerticalBlock"] > div[data-testid="stElementContainer"] .nowrap) {{
+    flex-wrap:nowrap !important; gap:.6rem;}}
+div[data-testid="stHorizontalBlock"]:has(> div > div[data-testid="stVerticalBlock"] > div[data-testid="stElementContainer"] .nowrap) > div {{
+    min-width:0 !important; width:auto !important; flex:1 1 0 !important;}}
+div[data-testid="stHorizontalBlock"]:has(> div > div[data-testid="stVerticalBlock"] > div[data-testid="stElementContainer"] .nowrap) > div:last-child {{
+    flex:0 0 min(40%, 190px) !important;}}
 .nowrap {{display:none;}}
 div[data-testid="stElementContainer"]:has(> div[data-testid="stMarkdown"] .nowrap) {{display:none;}}
 
@@ -96,6 +103,44 @@ a.pc.top .pc-price {{color:{VERMILION};}}
 .rr.rt .rl, .rr.rt .ra-main {{font-weight:800; font-size:1.1rem;}}
 .rr.rt .ra-main {{color:{VERMILION};}}
 
+/* ---------- messages */
+.unread-badge {{display:inline-block; min-width:18px; padding:0 6px; border-radius:999px; background:{VERMILION};
+               color:#fff; font-size:.72rem; font-weight:800; text-align:center; line-height:18px;}}
+a.msg-link {{font-weight:600;}}
+.chat {{display:flex; flex-direction:column; gap:10px; margin:.4rem 0 .8rem;}}
+.b {{max-width:88%; padding:10px 12px; border-radius:16px; line-height:1.45; font-size:.95rem;
+     word-break:break-word;}}
+.b.me {{align-self:flex-end; background:#111827; color:#fff; border-bottom-right-radius:4px;}}
+.b.them {{align-self:flex-start; background:var(--secondary-background-color, #f3f4f6);
+          border-bottom-left-radius:4px;}}
+.b-en {{margin-top:7px; padding-top:7px; border-top:1px solid rgba(128,128,128,.3);}}
+.b-sub {{font-size:.74rem; color:#6b7280; margin-top:5px;}}
+.b.me .b-sub {{color:#cbd5e1;}}
+.mean {{margin-top:8px; background:#FFF7E6; color:#7A4B00; border-radius:10px; padding:6px 9px; font-size:.85rem;}}
+.terms {{margin-top:7px; display:flex; flex-wrap:wrap; gap:5px;}}
+.term {{font-size:.72rem; font-weight:700; padding:1px 8px; border-radius:6px; background:#E8F0FE; color:#1A4FB5;}}
+.chat mark {{background:#FFE08A; color:inherit; padding:0 2px; border-radius:3px;}}
+.typing {{align-self:flex-start; color:#6b7280; font-style:italic; font-size:.9rem; padding:4px 6px;}}
+.chat-head {{margin-bottom:.3rem;}}
+.chat-head .who {{font-size:1.2rem; font-weight:800; line-height:1.2;}}
+.preview {{background:var(--secondary-background-color, #f3f4f6); border-radius:12px; padding:10px 12px;
+           margin:.3rem 0 .5rem; font-size:.92rem;}}
+.preview .bt {{color:#6b7280; font-size:.82rem; margin-top:5px;}}
+.deal-row {{display:flex; justify-content:space-between; gap:10px; padding:7px 0; font-size:.88rem;
+            border-bottom:1px solid rgba(128,128,128,.18);}}
+.deal-row .v {{text-align:right; font-weight:600;}}
+.deal-row.new .v {{color:{VERMILION};}}
+.deal-row .src {{display:block; font-weight:400; font-size:.72rem; color:#9ca3af;}}
+a.ib {{display:block; padding:12px 0; border-bottom:1px solid rgba(128,128,128,.18); color:inherit !important;
+       text-decoration:none !important;}}
+.ib-top {{display:flex; justify-content:space-between; gap:8px; align-items:baseline;}}
+.ib-name {{font-weight:700; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}}
+a.ib.unread .ib-name::before {{content:"●"; color:{VERMILION}; margin-right:6px;}}
+.ib-time {{font-size:.75rem; color:#9ca3af; white-space:nowrap;}}
+.ib-prod {{font-size:.82rem; color:#6b7280; margin:2px 0;}}
+.ib-last {{font-size:.88rem; color:#4b5563; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}}
+a.ib.unread .ib-last {{font-weight:600; color:inherit;}}
+
 /* ---------- AI translation strip */
 details.tr {{font-size:.85rem; margin:.35rem 0 .2rem;}}
 details.tr summary {{cursor:pointer; list-style:none; color:#4b5563;}}
@@ -120,7 +165,9 @@ PLATFORM_COLOURS = {"1688": "#FF6A00", "Taobao": "#F5A623", "JD": "#7B3FE4", "Yi
 
 # --------------------------------------------------------------------------- state (mirrored in the URL)
 S = st.session_state
-DEFAULTS = dict(view="home", q="", qty=500, budget=0.0, country="Italy", cur="EUR", pid=None, cmp=[])
+DEFAULTS = dict(view="home", q="", qty=500, budget=0.0, country="Italy", cur="EUR", pid=None, cmp=[],
+                conv=None)
+VIEWS = ("home", "results", "detail", "compare", "paste", "inbox", "chat")
 
 
 def init_state():
@@ -131,8 +178,9 @@ def init_state():
     for k, v in DEFAULTS.items():
         S[k] = v
     try:
-        if qp.get("view") in ("home", "results", "detail", "compare", "paste"):
+        if qp.get("view") in VIEWS:
             S.view = qp["view"]
+        S.conv = qp.get("conv") or None
         S.q = qp.get("q", "")
         S.qty = max(1, int(qp.get("qty", DEFAULTS["qty"])))
         S.budget = max(0.0, float(qp.get("budget", 0)))
@@ -146,6 +194,7 @@ def init_state():
         pass
     S.setdefault("pasted", None)
     S.setdefault("pasted_text", "")
+    S.convs = M.load_conversations()  # demo storage: conversations survive a page reload
 
 
 def state_params(**over):
@@ -156,6 +205,8 @@ def state_params(**over):
         p["pid"] = S.pid
     if S.cmp:
         p["cmp"] = ",".join(S.cmp)
+    if S.conv and S.view == "chat":
+        p["conv"] = S.conv
     p.update(over)
     return {k: v for k, v in p.items() if v not in (None, "")}
 
@@ -348,10 +399,22 @@ def translation_strip(plan, reason, via_translation):
     )
 
 
+def unread_count():
+    return sum(1 for c in S.convs.values() for m in c["messages"]
+               if m["role"] == "supplier" and not m.get("read"))
+
+
+def messages_link():
+    n = unread_count()
+    badge = f" <span class='unread-badge'>{n}</span>" if n else ""
+    return f"<a class='plain msg-link' href='{link(view='inbox', pid=None)}' target='_self'>💬 Messages{badge}</a>"
+
+
 def nav_bar():
     """Small top bar for inner pages (not shown on the home screen)."""
     items = [f"<a class='plain' href='{link(view='home', pid=None)}' target='_self'><b>🔎 SourceScan</b></a>",
-             f"<a class='plain muted' href='{link(view='paste')}' target='_self'>Paste a listing</a>"]
+             f"<a class='plain muted' href='{link(view='paste')}' target='_self'>Paste a listing</a>",
+             messages_link()]
     if len(S.cmp) >= 2:
         items.append(f"<a class='plain muted' href='{link(view='compare')}' target='_self'>Compare ({len(S.cmp)})</a>")
     st.markdown("<div style='display:flex;gap:18px;align-items:center;flex-wrap:wrap;margin-bottom:.6rem'>"
@@ -388,7 +451,8 @@ div[data-testid="stForm"] div[data-testid="stSelectbox"] div[data-baseweb="selec
 </style>""",
         unsafe_allow_html=True,
     )
-    st.markdown(f"<div class='hero-wrap'><div class='hero-title'>{HEADLINE}</div></div>",
+    st.markdown(f"<div style='text-align:right;font-size:.88rem'>{messages_link()}</div>"
+                f"<div class='hero-wrap'><div class='hero-title'>{HEADLINE}</div></div>",
                 unsafe_allow_html=True)
 
     with st.form("search_form", border=False):
@@ -511,7 +575,9 @@ def page_results():
     q = esc(S.q) or "All products"
     budget_txt = f" · max {money(S.budget, sym)}/unit" if S.budget else ""
     st.markdown(
+        f"<div style='display:flex;justify-content:space-between'>"
         f"<a class='rh-back' href='{link(view='home', pid=None)}' target='_self'>← New search</a>"
+        f"<span style='font-size:.9rem'>{messages_link()}</span></div>"
         f"<div class='rh-q'>“{q}”</div>"
         f"<div class='rh-sub'>{S.qty:,} units · to {S.country} · {S.cur}{budget_txt}</div>",
         unsafe_allow_html=True,
@@ -582,54 +648,21 @@ def kv_table(pairs):
     return f"<table class='kv'>{rows}</table>"
 
 
-def copy_button(text, key):
-    payload = json.dumps(text)
-    components.html(
-        f"""
-<button id="b" style="padding:10px 20px;border-radius:10px;border:1px solid #ccc;background:#fff;
- font-weight:600;cursor:pointer;font-family:sans-serif;font-size:15px">📋 Copy</button>
-<span id="m" style="font-family:sans-serif;color:#2E7D32;margin-left:8px"></span>
-<script>
-const txt = {payload};
-document.getElementById('b').onclick = async () => {{
-  let ok = false;
-  try {{ await navigator.clipboard.writeText(txt); ok = true; }} catch (e) {{}}
-  if (!ok) {{
-    const ta = document.createElement('textarea'); ta.value = txt; document.body.appendChild(ta);
-    ta.select(); try {{ ok = document.execCommand('copy'); }} catch (e) {{}} ta.remove();
-  }}
-  document.getElementById('m').textContent = ok ? 'Copied!' : 'Copy failed — select the text manually';
-}};
-</script>""",
-        height=52,
-    )
-
-
-COUNTRY_CN = {"Italy": "意大利", "Germany": "德国", "France": "法国", "Spain": "西班牙", "Portugal": "葡萄牙",
-              "Netherlands": "荷兰", "Sweden": "瑞典", "Denmark": "丹麦", "Poland": "波兰",
-              "Czech Republic": "捷克", "Hungary": "匈牙利", "Romania": "罗马尼亚", "United Kingdom": "英国",
-              "Switzerland": "瑞士", "Norway": "挪威", "Iceland": "冰岛", "United States": "美国"}
-
-
-def contact_message(p, qty, country):
-    cn_title = p.get("title_cn") or "贵司产品"
-    cn = (f"您好！我对贵司的“{cn_title}”很感兴趣。\n"
-          f"我计划采购 {qty} 件，需要发货到{COUNTRY_CN.get(country, country)}。\n"
-          "请问：\n"
-          f"1. {qty} 件的最优单价是多少？\n"
-          "2. 生产周期和发货时间需要多久？\n"
-          "3. 可以先寄样品吗？样品费和运费是多少？\n"
-          "4. 是否支持定制logo和包装？\n"
-          "谢谢！期待您的回复。")
-    en = (f"Hello! I am interested in your product “{p.get('title_en') or cn_title}”.\n"
-          f"I plan to buy {qty} units, to be shipped to {country}.\n"
-          "Could you tell me:\n"
-          f"1. What is your best unit price for {qty} units?\n"
-          "2. How long are production and shipping?\n"
-          "3. Can you send a sample first? What are the sample and shipping costs?\n"
-          "4. Do you support custom logo and packaging?\n"
-          "Thank you! Looking forward to your reply.")
-    return cn, en
+def open_conversation(p, qty, country):
+    """Contact supplier: open the existing chat for this product, or start one with the
+    product, quantity, country and delivered price loaded as context."""
+    existing = next((c for c in S.convs.values()
+                     if c["pid"] == p["id"] and c.get("product") == p.get("title_en")), None)
+    if existing:
+        conv = existing
+    else:
+        d = delivered(p, qty, country, S.cur)
+        conv = M.new_conversation(p, qty, country, S.cur, d["per_unit"])
+        conv["card"] = {k: v for k, v in p.items()}  # product card snapshot (pasted listings too)
+        S.convs[conv["id"]] = conv
+        M.save_conversations(S.convs)
+        S[f"draft_{conv['id']}"] = M.quick_action_text("Ask for quote", qty, country, p.get("moq"))
+    go("chat", conv=conv["id"])
 
 
 def render_detail(p, source="catalog"):
@@ -785,17 +818,10 @@ def render_detail(p, source="catalog"):
     # ---- 4. Contact
     st.subheader("4 · Contact the supplier")
     with st.container(border=True):
-        cn, en = contact_message(p, qty, country)
-        c1, c2 = st.columns(2)
-        with c1:
-            st.markdown("**Message in Chinese** (send this)")
-            st.text_area("Chinese message", cn, height=210, key=f"cn_{key}_{qty}_{country}",
-                         label_visibility="collapsed")
-            copy_button(cn, key)
-        with c2:
-            st.markdown("**English translation** (for you)")
-            st.text_area("English translation", en, height=210, key=f"en_{key}_{qty}_{country}",
-                         label_visibility="collapsed")
+        st.markdown("Chat with the supplier here: you write in English (or your language), they read "
+                    "natural business Chinese, and every reply comes back translated and explained.")
+        st.button("💬 Contact supplier", type="primary", key=f"contact_{key}",
+                  on_click=open_conversation, args=(p, qty, country))
         st.markdown("**Original listing**")
         if p.get("url"):
             st.link_button(f"Open original listing on {p.get('platform') or 'source site'} ↗", p["url"])
@@ -895,6 +921,321 @@ def page_paste():
     render_detail(p, "pasted")
 
 
+# =========================================================================== MESSAGES
+def ago(ts):
+    s = max(0, time.time() - ts)
+    if s < 60:
+        return "now"
+    if s < 3600:
+        return f"{int(s // 60)} min"
+    if s < 86400:
+        return time.strftime("%H:%M", time.localtime(ts))
+    return time.strftime("%d %b", time.localtime(ts))
+
+
+def page_inbox():
+    st.header("Messages")
+    convs = sorted(S.convs.values(), key=lambda c: c["updated"], reverse=True)
+    if not convs:
+        st.info("No conversations yet. Open a product and tap “Contact supplier”.")
+        return
+    rows = []
+    for c in convs:
+        last = c["messages"][-1] if c["messages"] else None
+        if last is None:
+            preview = "<span class='na'>No messages yet — your draft is ready</span>"
+        elif last["role"] == "buyer":
+            preview = "You: " + esc(last.get("en") or "")
+        else:
+            preview = esc((last.get("analysis") or {}).get("en") or last["zh"])
+        unread = any(m["role"] == "supplier" and not m.get("read") for m in c["messages"])
+        rows.append(
+            f"<a class='ib{' unread' if unread else ''}' href='{link(view='chat', conv=c['id'])}' target='_self'>"
+            f"<div class='ib-top'><span class='ib-name'>{esc(c['supplier'] or NA)}</span>"
+            f"<span class='ib-time'>{ago(c['updated'])}</span></div>"
+            f"<div class='ib-prod'><span class='mk' style='background:{PLATFORM_COLOURS.get(c['platform'], '#6b7280')}'>"
+            f"{esc(c['platform'] or NA)}</span> {esc(c['product'] or NA)}</div>"
+            f"<div class='ib-last'>{preview}</div></a>")
+    st.markdown("".join(rows), unsafe_allow_html=True)
+
+
+# ---- AI calls with caching (failures are never cached)
+class _AIUnavailable(Exception):
+    pass
+
+
+@st.cache_data(show_spinner=False, max_entries=2000)
+def _translate_cached(text, tone, context_json):
+    out, err = M.translate_outgoing(text, tone, json.loads(context_json))
+    if out is None:
+        raise _AIUnavailable(err)
+    return out
+
+
+@st.cache_data(show_spinner=False, max_entries=2000)
+def _analyze_cached(text_zh, context_json):
+    out, err = M.analyze_incoming(text_zh, json.loads(context_json))
+    if out is None:
+        raise _AIUnavailable(err)
+    return out
+
+
+def highlight_zh(text, highlights):
+    """Escape the supplier text and mark the key-term substrings the analysis found."""
+    out = esc(text)
+    parts = sorted({esc(h) for h in highlights or [] if h and h in text}, key=len, reverse=True)
+    if parts:
+        out = re.sub("|".join(re.escape(p) for p in parts), lambda m: f"<mark>{m.group(0)}</mark>", out)
+    return out.replace("\n", "<br>")
+
+
+TERM_LABELS = {"unit_price_cny": "Price", "moq_units": "MOQ", "lead_time": "Lead time",
+               "payment_terms": "Payment", "sample_cost": "Sample", "shipping_terms": "Shipping",
+               "customization": "Customization", "seller_type": "Seller", "certifications": "Certificates"}
+
+
+def term_chips(terms):
+    chips = []
+    for k, label in TERM_LABELS.items():
+        v = (terms or {}).get(k)
+        if v in (None, "", 0, 0.0):
+            continue
+        if k == "unit_price_cny":
+            q = terms.get("price_for_quantity")
+            v = f"¥{v:g}" + (f" @ {q:,} pcs" if q else "")
+        elif k == "moq_units":
+            v = f"{v:,} pcs"
+        chips.append(f"<span class='term'>{label}: {esc(v)}</span>")
+    return f"<div class='terms'>{''.join(chips)}</div>" if chips else ""
+
+
+def bubble(m):
+    t = ago(m["ts"])
+    if m["role"] == "buyer":
+        return (f"<div class='b me'>{esc(m['zh']).replace(chr(10), '<br>')}"
+                f"<div class='b-sub'>You wrote: {esc(m.get('en') or '')} · {t}</div></div>")
+    a = m.get("analysis")
+    if not a:
+        return (f"<div class='b them'>{esc(m['zh']).replace(chr(10), '<br>')}"
+                f"<div class='b-sub'>Translation not available — {esc(m.get('analysis_error') or '')} · {t}</div></div>")
+    return (f"<div class='b them'>{highlight_zh(m['zh'], a.get('highlights'))}"
+            f"<div class='b-en'>{esc(a['en'])}</div>"
+            f"<div class='mean'><b>What they mean:</b> {esc(a['meaning'])}</div>"
+            f"{term_chips(a.get('terms'))}<div class='b-sub'>{t}</div></div>")
+
+
+def _set_draft(conv_id, text):
+    S[f"draft_{conv_id}"] = text
+
+
+def _quick_action(conv):
+    key = f"qa_{conv['id']}"
+    name = S.get(key)
+    if name:
+        S[f"draft_{conv['id']}"] = M.quick_action_text(name, conv["qty"], conv["country"],
+                                                       conv["context"].get("listed_moq"))
+        S[key] = None  # pills act as one-shot buttons
+
+
+def _preview(conv):
+    cid = conv["id"]
+    text = (S.get(f"draft_{cid}") or "").strip()
+    tone = S.get(f"tone_{cid}") or "polite"
+    if not text:
+        S[f"prev_{cid}"] = {"error": "Write a message first."}
+        return
+    try:
+        out = _translate_cached(text, tone, json.dumps(conv["context"], ensure_ascii=False, sort_keys=True))
+        S[f"prev_{cid}"] = {"src": text, "tone": tone, **out}
+    except _AIUnavailable as e:
+        S[f"prev_{cid}"] = {"error": f"Translation not available — {e}"}
+
+
+def _send(conv):
+    cid = conv["id"]
+    prev = S.get(f"prev_{cid}") or {}
+    conv["messages"].append({"role": "buyer", "en": prev["src"], "zh": prev["zh"],
+                             "back_en": prev["back_en"], "tone": prev["tone"], "ts": time.time()})
+    conv["updated"] = time.time()
+    conv["pending"] = True
+    S[f"draft_{cid}"] = ""
+    S[f"prev_{cid}"] = None
+    M.save_conversations(S.convs)
+
+
+def _recalc(conv):
+    """Delivered price with the negotiated unit price (and MOQ) instead of the listing's."""
+    deal, card = conv["deal"], conv["card"]
+    new_card = dict(card)
+    new_card["tiers"] = [[1, deal["unit_price_cny"]]]
+    if deal.get("moq_units"):
+        new_card["moq"] = deal["moq_units"]
+    qty = max(conv["qty"], deal.get("price_for_quantity") or 0)
+    before = delivered(card, qty, conv["country"], S.cur)
+    after = delivered(new_card, qty, conv["country"], S.cur)
+    conv["recalc"] = {"qty": qty, "cur": S.cur, "before": before["per_unit"], "after": after["per_unit"],
+                      "before_total": before["total"], "after_total": after["total"],
+                      "mode": after["mode_label"], "days": after["transit_days"], "ts": time.time()}
+    M.save_conversations(S.convs)
+
+
+def deal_panel(conv):
+    deal, ctx, sym = conv["deal"], conv["context"], SYMBOL[S.cur]
+    listing = {
+        "unit_price_cny": f"¥{ctx['listed_unit_price_cny']:g}" if ctx.get("listed_unit_price_cny") else None,
+        "moq_units": f"{ctx['listed_moq']:,} pcs" if ctx.get("listed_moq") else None,
+        "lead_time": f"{conv['card'].get('production_days')} days" if conv["card"].get("production_days") else None,
+        "customization": conv["card"].get("customisation"),
+    }
+    rows = []
+    for k, label in M.DEAL_FIELDS:
+        v = deal.get(k)
+        if v not in (None, "", 0):
+            if k == "unit_price_cny":
+                q = deal.get("price_for_quantity")
+                v = f"¥{v:g}" + (f" @ {q:,} pcs" if q else "")
+            elif k == "moq_units":
+                v = f"{v:,} pcs"
+            cell = f"{esc(v)}<span class='src'>from chat</span>"
+            cls = " new" if k in deal.get("updated", []) else ""
+        elif listing.get(k):
+            cell, cls = f"{esc(listing[k])}<span class='src'>listing</span>", ""
+        else:
+            cell, cls = f"<span class='na'>not discussed yet</span>", ""
+        rows.append(f"<div class='deal-row{cls}'><span>{label}</span><span class='v'>{cell}</span></div>")
+    st.markdown("**Deal terms**" + "".join(rows), unsafe_allow_html=True)
+
+    can = bool(deal.get("unit_price_cny"))
+    st.button("Recalculate delivered price", key=f"recalc_{conv['id']}", disabled=not can,
+              on_click=_recalc, args=(conv,), use_container_width=True,
+              help=None if can else "Available once the supplier quotes a unit price")
+    r = conv.get("recalc")
+    if r and r["cur"] == S.cur:
+        diff = "" if not (r["before"] and r["after"]) else f" ({(r['after'] - r['before']) / r['before'] * 100:+.1f}%)"
+        st.markdown(
+            f"<div class='rcpt'><div class='rr'><div class='rl'>Listing price<span class='rb'>delivered, "
+            f"{r['qty']:,} units</span></div><div class='ra'><span class='ra-main'>{money(r['before'], sym)}</span>"
+            f"<span class='ra-per'>{money(r['before_total'], sym, 0)} total</span></div></div>"
+            f"<div class='rr rt'><div class='rl'>Negotiated<span class='rb'>{esc(r['mode'])}, {r['days']} days"
+            f"{diff}</span></div><div class='ra'><span class='ra-main'>{money(r['after'], sym)}</span>"
+            f"<span class='ra-per'>{money(r['after_total'], sym, 0)} total</span></div></div></div>",
+            unsafe_allow_html=True)
+
+    st.markdown("**Still to ask**")
+    for k, label, question in M.CHECKLIST:
+        done = deal.get(k) not in (None, "", 0)
+        if done:
+            st.markdown(f"✅ {label}")
+        else:
+            st.button(f"☐ {label} — ask", key=f"ask_{k}_{conv['id']}", on_click=_set_draft,
+                      args=(conv["id"], question), type="tertiary")
+
+
+def page_chat():
+    conv = S.convs.get(S.conv)
+    st.markdown("<style>.block-container {max-width:1100px;}</style>", unsafe_allow_html=True)
+    if not conv:
+        st.warning("Conversation not found.")
+        st.markdown(f"<a href='{link(view='inbox')}' target='_self'>← All messages</a>", unsafe_allow_html=True)
+        return
+    cid = conv["id"]
+
+    # opening the chat marks supplier messages as read
+    if any(m["role"] == "supplier" and not m.get("read") for m in conv["messages"]):
+        for m in conv["messages"]:
+            m["read"] = True
+        M.save_conversations(S.convs)
+
+    st.markdown(
+        f"<div class='chat-head'><a class='rh-back' href='{link(view='inbox')}' target='_self'>← All messages</a>"
+        f"<div class='who'>{esc(conv['supplier'] or NA)}</div>"
+        f"<div class='muted'><span class='mk' style='background:{PLATFORM_COLOURS.get(conv['platform'], '#6b7280')}'>"
+        f"{esc(conv['platform'] or NA)}</span> {esc(conv['product'] or NA)} · {conv['qty']:,} units to "
+        f"{esc(conv['country'])}"
+        + (f" · listed delivered price {money(conv['delivered_at_start'] * fx_rate(S.cur) / fx_rate(conv['currency']), SYMBOL[S.cur])}/unit"
+           if conv.get("delivered_at_start") else "")
+        + "</div></div>", unsafe_allow_html=True)
+
+    c_chat, c_deal = st.columns([1.75, 1], gap="large")
+    with c_chat:
+        st.markdown("<div class='chat'>" + "".join(bubble(m) for m in conv["messages"]) + "</div>",
+                    unsafe_allow_html=True)
+
+        # ---- supplier reply (with a short "typing…" pause)
+        if conv.get("pending"):
+            st.markdown("<div class='chat'><div class='typing'>typing…</div></div>", unsafe_allow_html=True)
+            start = time.time()
+            reply, err = M.simulate_supplier_reply(conv["messages"], conv["persona"])
+            if reply is None:
+                conv["pending"] = False
+                conv["error"] = f"Message delivered, but the reply could not be loaded — {err}"
+                M.save_conversations(S.convs)
+                st.rerun()
+            ctx = dict(conv["context"], current_deal={k: v for k, v in conv["deal"].items() if k != "updated"})
+            try:
+                analysis = _analyze_cached(reply, json.dumps(ctx, ensure_ascii=False, sort_keys=True))
+                a_err = None
+            except _AIUnavailable as e:
+                analysis, a_err = None, str(e)
+            wait = random.uniform(1, 3) - (time.time() - start)
+            if wait > 0:
+                time.sleep(wait)
+            conv["messages"].append({"role": "supplier", "zh": reply, "analysis": analysis,
+                                     "analysis_error": a_err, "ts": time.time(), "read": True})
+            if analysis:
+                conv["deal"] = M.update_deal_terms(conv["deal"], analysis.get("terms"))
+            conv["pending"] = False
+            conv["error"] = None
+            conv["updated"] = time.time()
+            M.save_conversations(S.convs)
+            st.rerun()
+        if conv.get("error"):
+            st.warning(conv["error"])
+
+        # ---- suggested replies for the latest supplier message
+        last = conv["messages"][-1] if conv["messages"] else None
+        if last and last["role"] == "supplier" and last.get("analysis"):
+            sugg = last["analysis"].get("suggestions") or []
+            if sugg:
+                st.caption("Suggested replies — tap to use as a draft")
+                for i, s_ in enumerate(sugg[:3]):
+                    st.button(s_, key=f"sugg_{cid}_{len(conv['messages'])}_{i}", on_click=_set_draft,
+                              args=(cid, s_), use_container_width=True)
+
+        # ---- composer
+        st.pills("Quick actions", list(M.QUICK_ACTIONS), key=f"qa_{cid}", on_change=_quick_action,
+                 args=(conv,), label_visibility="collapsed")
+        st.text_area("Your message", key=f"draft_{cid}", height=110,
+                     placeholder="Write in English or any language…", label_visibility="collapsed")
+        tone_key = f"tone_{cid}"
+        S.setdefault(tone_key, "polite")
+        st.segmented_control("Tone", ["polite", "neutral", "firm"], key=tone_key,
+                             format_func=str.capitalize)
+        prev = S.get(f"prev_{cid}")
+        draft_now = (S.get(f"draft_{cid}") or "").strip()
+        fresh = bool(prev and not prev.get("error") and prev.get("src") == draft_now
+                     and prev.get("tone") == S.get(tone_key))
+        if prev and prev.get("error"):
+            st.warning(prev["error"])
+        elif fresh:
+            st.markdown(f"<div class='preview'><b>Will be sent:</b><br>{esc(prev['zh']).replace(chr(10), '<br>')}"
+                        f"<div class='bt'>Means: {esc(prev['back_en'])}</div></div>", unsafe_allow_html=True)
+        b1, b2 = st.columns([1.3, 1])
+        with b1:
+            st.markdown("<span class='nowrap'></span>", unsafe_allow_html=True)
+            st.button("Preview in Chinese", key=f"pv_{cid}", on_click=_preview, args=(conv,),
+                      use_container_width=True, disabled=not draft_now)
+        with b2:
+            st.button("Send", key=f"send_{cid}", type="primary", on_click=_send, args=(conv,),
+                      use_container_width=True, disabled=not fresh or bool(conv.get("pending")))
+        if draft_now and not fresh:
+            st.caption("Preview the Chinese version first, then send.")
+
+    with c_deal:
+        with st.container(border=True):
+            deal_panel(conv)
+
+
 # =========================================================================== MAIN
 def scroll_to_top_on_view_change():
     view = f"{S.view}:{S.pid if S.view == 'detail' else ''}"
@@ -908,6 +1249,7 @@ def scroll_to_top_on_view_change():
         )
 
 
+llm.set_api_key(get_api_key())
 scroll_to_top_on_view_change()
 if S.view == "home":
     page_home()
@@ -915,4 +1257,5 @@ elif S.view == "results":
     page_results()
 else:
     nav_bar()
-    {"detail": page_detail, "compare": page_compare, "paste": page_paste}.get(S.view, page_home)()
+    {"detail": page_detail, "compare": page_compare, "paste": page_paste,
+     "inbox": page_inbox, "chat": page_chat}.get(S.view, page_home)()
