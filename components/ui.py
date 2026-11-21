@@ -131,19 +131,32 @@ def messages_link():
     n = unread_count()
     badge = f" <span class='unread-badge'>{n}</span>" if n else ""
     return (f"<a class='plain msg-link' href='{link(view='inbox', pid=None)}' target='_self'>"
-            f"💬 Messages{badge}</a>")
+            f"Messages{badge}</a>")
+
+
+def topbar_html():
+    """Logo on the left; sections, orders and the delivery chip on the right."""
+    links = [f"<a href='{link(view='home', tab='link', pid=None)}' target='_self'>Link paste</a>",
+             messages_link()]
+    if S.orders:
+        links.append(f"<a href='{link(view='orders', order=None)}' target='_self'>Orders</a>")
+    if len(S.cmp) >= 2:
+        links.append(f"<a href='{link(view='compare')}' target='_self'>Compare ({len(S.cmp)})</a>")
+    links.append(f"<span class='chip'>{esc(S.country)} · {currency_short(S.cur)}</span>")
+    return (f"<div class='topbar'><a class='logo' href='{link(view='home', tab='search', pid=None)}' target='_self'>"
+            f"<span class='logo-mark'></span>SourceScan</a><div class='top-links'>{''.join(links)}</div></div>")
+
+
+def band(key="band"):
+    """The dark full-width band with the top bar. Use as `with band(): ...` to add content to it."""
+    c = st.container(key=key)
+    c.markdown(topbar_html(), unsafe_allow_html=True)
+    return c
 
 
 def nav_bar():
-    """Top bar for inner pages: home, link paste, messages, orders."""
-    items = [f"<a class='plain' href='{link(view='home', tab='search', pid=None)}' target='_self'><b>🔎 SourceScan</b></a>",
-             f"<a class='plain muted' href='{link(view='home', tab='link', pid=None)}' target='_self'>🔗 Link paste</a>",
-             messages_link()]
-    if S.orders:
-        items.append(f"<a class='plain muted' href='{link(view='orders', order=None)}' target='_self'>📦 Orders</a>")
-    if len(S.cmp) >= 2:
-        items.append(f"<a class='plain muted' href='{link(view='compare')}' target='_self'>Compare ({len(S.cmp)})</a>")
-    st.markdown("<div class='nav'>" + "".join(items) + "</div>", unsafe_allow_html=True)
+    """Top bar for inner pages."""
+    band()
 
 
 def sample_banner():

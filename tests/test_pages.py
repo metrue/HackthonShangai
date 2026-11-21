@@ -11,7 +11,7 @@ from tests.test_ai import PLAN
 
 
 @pytest.mark.parametrize("tab,expected", [
-    ("search", "See where it costs less"), ("link", "Paste a link"), ("messages", "Your suppliers")])
+    ("search", "Find it in China"), ("link", "Paste a link"), ("messages", "Your suppliers")])
 def test_home_three_way_bar(no_ai, tab, expected):
     at = run_app({"view": "home", "tab": tab})
     assert expected in page_text(at)

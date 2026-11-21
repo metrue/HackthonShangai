@@ -1,0 +1,8 @@
+# SourceScan palette: Steel Azure #064789 · Rich Cerulean #427AA1 · Alice Blue #EBF2FA
+#                    Sage Green #679436 · Lime Moss #A5BE00
+[theme]
+base = "light"
+primaryColor = "#427AA1"
+backgroundColor = "#EBF2FA"
+secondaryBackgroundColor = "#FFFFFF"
+textColor = "#0B2A47"
