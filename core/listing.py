@@ -1,8 +1,12 @@
-"""Rule-based extraction from pasted listing text.
+"""Reading a marketplace listing for Link paste.
 
-Only values that are literally found in the text are returned. Anything not
-found stays None and is shown as "not available" in the app.
+Two readers, same output (a product card like the catalog ones):
+  - read_listing(): the AI reads a screenshot or the pasted text (main path)
+  - parse_listing(): rule-based fallback for pasted text when the AI is not available
+Only values that are in the listing are returned. Anything not found stays None and
+is shown as "not available" in the app. Pages are never fetched from the web.
 """
+import base64
 import re
 
 # Small glossary for a word-by-word English rendering of Chinese titles.
@@ -207,6 +211,124 @@ def parse_listing(text):
             disputes=None,
         ),
     )
+
+
+def platform_from_url(url):
+    u = (url or "").lower()
+    for key, name in [("1688.com", "1688"), ("taobao.com", "Taobao"), ("tmall.com", "Taobao"),
+                      ("jd.com", "JD"), ("yiwugo.com", "Yiwugo")]:
+        if key in u:
+            return name
+    return None
+
+
+# ---------------------------------------------------------------------------
+# AI reader (screenshot or text)
+# ---------------------------------------------------------------------------
+
+CATEGORIES = ["bags", "drinkware", "phone accessories", "sports", "ceramics", "lighting", "unknown"]
+
+LISTING_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "title_cn": {"type": "string"},
+        "title_en": {"type": "string"},
+        "platform": {"type": "string", "enum": ["1688", "Taobao", "JD", "Yiwugo", ""]},
+        "moq": {"type": "integer"},
+        "tiers": {"type": "array", "items": {
+            "type": "object",
+            "properties": {"min_qty": {"type": "integer"}, "price_cny": {"type": "number"}},
+            "required": ["min_qty", "price_cny"], "additionalProperties": False}},
+        "material": {"type": "string"},
+        "size": {"type": "string"},
+        "weight_g": {"type": "number"},
+        "production_days": {"type": "integer"},
+        "customisation": {"type": "string"},
+        "category": {"type": "string", "enum": CATEGORIES},
+        "supplier": {"type": "object", "properties": {
+            "name_cn": {"type": "string"}, "name_en": {"type": "string"}, "city": {"type": "string"},
+            "type": {"type": "string", "enum": ["factory", "store", "middleman", "unknown"]},
+            "years": {"type": "integer"},
+            "badges": {"type": "array", "items": {"type": "string"}},
+            "response_rate": {"type": "number"}, "repeat_buyer_rate": {"type": "number"}},
+            "required": ["name_cn", "name_en", "city", "type", "years", "badges", "response_rate",
+                         "repeat_buyer_rate"],
+            "additionalProperties": False},
+    },
+    "required": ["title_cn", "title_en", "platform", "moq", "tiers", "material", "size", "weight_g",
+                 "production_days", "customisation", "category", "supplier"],
+    "additionalProperties": False,
+}
+
+READER_PROMPT = """You read a product listing from a Chinese marketplace (1688, Taobao/Tmall, JD,
+Yiwugo), given as a screenshot or as copied page text, and fill in a product card for a
+European buyer.
+
+Rules:
+- Only use what is visible in the listing. Never guess or invent a value.
+  Use 0 for numbers and "" for text that is not shown.
+- title_cn: the original title. title_en: a natural English product name (not word by word).
+- tiers: every quantity price tier shown (min quantity -> unit price in CNY). If there is a
+  single price, use one tier with the MOQ (or 1) as min_qty.
+- moq: minimum order quantity (起批量 / 起订量 / "N件起批").
+- weight_g: weight per unit in grams; size, material and customisation in short English.
+- production_days: lead time / 发货时间 in days, if shown.
+- category: the closest one, or "unknown".
+- supplier.type: factory (工厂/厂家/源头/生产厂家), middleman (贸易/进出口/商贸), store (店/旗舰店),
+  else unknown. supplier.years: years on the platform or in business, if shown.
+- Badges: use these English names when they apply: Verified supplier (实力商家), Trade assurance
+  (交易保障/买家保障), Onsite inspection (深度验厂), Source factory (源头工厂), TrustPass member (诚信通),
+  Brand official store (官方旗舰店), Platform self-operated (京东自营).
+- response_rate / repeat_buyer_rate: percentages (回复率/响应率, 回头率/复购率) if shown."""
+
+
+def _blank_to_none(v):
+    return None if v in (0, 0.0, "", [], "unknown") else v
+
+
+def card_from_ai(data, url=None):
+    """Turn the AI's answer into a product card (None for everything not shown)."""
+    s = data.get("supplier") or {}
+    tiers = sorted((int(t["min_qty"]) or 1, float(t["price_cny"])) for t in data.get("tiers") or []
+                   if t.get("price_cny"))
+    weight = _blank_to_none(data.get("weight_g"))
+    platform = _blank_to_none(data.get("platform")) or platform_from_url(url)
+    return dict(
+        id="PASTED", category=_blank_to_none(data.get("category")),
+        title_en=_blank_to_none(data.get("title_en")), title_cn=_blank_to_none(data.get("title_cn")),
+        keywords="", platform=platform, moq=_blank_to_none(data.get("moq")) or (tiers[0][0] if len(tiers) > 1 else None),
+        tiers=tiers, material=_blank_to_none(data.get("material")), size=_blank_to_none(data.get("size")),
+        weight_kg=None if weight is None else weight / 1000,
+        production_days=_blank_to_none(data.get("production_days")),
+        customisation=_blank_to_none(data.get("customisation")), url=url or None,
+        supplier=dict(
+            name=_blank_to_none(s.get("name_en")), name_cn=_blank_to_none(s.get("name_cn")),
+            city=_blank_to_none(s.get("city")), type=_blank_to_none(s.get("type")),
+            years=_blank_to_none(s.get("years")), badges=[b for b in s.get("badges") or [] if b],
+            response_rate=_blank_to_none(s.get("response_rate")),
+            repeat_buyer_rate=_blank_to_none(s.get("repeat_buyer_rate")), disputes=None,
+        ),
+    )
+
+
+def read_listing(text=None, image=None, media_type=None, url=None):
+    """AI reading of a screenshot (bytes) and/or pasted text. Returns (card, None) or (None, reason)."""
+    from core.ai import ask  # imported here so the rule-based parser works without the SDK
+
+    content = []
+    if image:
+        content.append({"type": "image", "source": {"type": "base64", "media_type": media_type or "image/png",
+                                                    "data": base64.standard_b64encode(image).decode()}})
+    note = f"Listing link: {url}\n" if url else ""
+    if text:
+        content.append({"type": "text", "text": f"{note}Page text:\n{text}"})
+    else:
+        content.append({"type": "text", "text": f"{note}Read this listing screenshot."})
+    data, err = ask(READER_PROMPT, [{"role": "user", "content": content}], schema=LISTING_SCHEMA,
+                    effort="low")
+    if data is None:
+        return None, err
+    return card_from_ai(data, url), None
 
 
 SAMPLE_LISTING = """12安加厚帆布手提袋 可定制logo 环保购物袋 批发

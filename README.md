@@ -1,20 +1,21 @@
 # SourceScan
 
-Skyscanner-style search for Chinese sourcing platforms (1688, Taobao, JD, Yiwugo).
-Every price is shown **delivered** (product + shipping + duty + VAT), not the price on the original site.
+Find a product on Chinese marketplaces (1688, Taobao, JD, Yiwugo) and see the **real delivered
+price**: product + shipping + insurance + duty + customs + VAT, not the price on the original site.
 
-> Demo: results come from a **sample catalog**. Freight, duty, VAT and exchange rates are simplified
-> sample assumptions and are labelled as estimates in the app. Missing data is shown as "not available".
+> Demo: results come from a **sample catalog** (no scraping). Freight, duty and VAT are simplified
+> sample estimates, labelled as such in the app; the exchange rate is the live ECB rate when
+> available. Missing data is shown as "not available", never made up. Payments are simulated.
 
-## Pages
+## The three sections (bar at the top of the home page)
 
-- **Home / Search** – what you need, quantity, optional max budget per unit, delivery country
-- **Results** – sort by lowest delivered price / highest reliability / lowest MOQ; sidebar filters
-  (platform, seller type, minimum score, maximum MOQ); select 2–3 products to compare
-- **Product detail** – product specs and price tiers, delivered-price breakdown with editable quantity,
-  supplier score with reasons, ready-to-send Chinese message + English translation
-- **Compare** – side-by-side table of delivered price, MOQ, lead time and score
-- **Paste a listing** – paste listing text, click Analyze, get the same product page
+| 🔗 Link paste | 🔎 Sourcing (default) | 💬 Messages |
+|---|---|---|
+| Paste a link: a link to a sample-catalog product opens its full analysis; for any other link, add a screenshot or the page text and the AI reads it | Search in any language → translated for Chinese marketplaces → Amazon-style list with delivered prices and supplier scores | Chat with suppliers in your language; they read business Chinese; replies are translated and explained |
+
+From a product page: delivered price per shipping method (sea, rail, air, express) with the full
+breakdown, supplier score with reasons, **Contact supplier**, and **Order** → checkout with a
+simulated 30% deposit / 70% balance → order tracking.
 
 ## Run
 
@@ -23,44 +24,43 @@ pip install -r requirements.txt
 streamlit run app.py
 ```
 
-## AI query translation (optional)
+AI features (query translation, messages, reading screenshots) need an Anthropic API key; without
+it the app still works and says "not available" where the AI would be used:
 
-With an Anthropic API key, each search is rewritten the way a Chinese buyer would type it
-(e.g. "borsa di tela con logo" -> `帆布袋定制logo`), with alternatives, tips for suppliers and live
-search links for 1688 / Taobao / JD. Searches in Italian, German, French… also match the catalog.
-Without a key the app works as before and shows "Chinese query: not available".
-
-Set the key in one of these ways (never commit it):
-
-```bash
-# environment variable
-export ANTHROPIC_API_KEY=sk-ant-...
-# or .streamlit/secrets.toml (already in .gitignore)
+```toml
+# .streamlit/secrets.toml (git-ignored)   or   export ANTHROPIC_API_KEY=...
 ANTHROPIC_API_KEY = "sk-ant-..."
 ```
 
-One API call per distinct search per day (results are cached), model `claude-sonnet-5-5`.
+One model for every AI feature: `claude-opus-5-5` (change `MODEL` in `core/ai.py`).
 
-## Messages (chat with suppliers)
+## Tests
 
-"Contact supplier" on a product page opens a chat with the product, quantity, country and
-delivered price loaded; "Messages" opens the inbox. The buyer writes in any language and sees
-the Chinese version (with an English back-translation) before sending; each supplier reply shows
-the Chinese original with key terms highlighted, the English translation, "What they mean" and
-2-3 suggested replies. The deal panel collects price, MOQ, lead time, payment and sample terms
-from the chat and recalculates the delivered price with the negotiated unit price.
+```bash
+pip install pytest
+python -m pytest
+```
 
-For the demo the supplier is played by the AI from the product card, with a hidden floor price
-(85-92% of the list price). Needs the same `ANTHROPIC_API_KEY` as the query translation; model
-`claude-opus-5-5` (change `MODEL` in `llm.py`). Conversations are kept in `conversations.json`
-(git-ignored) so they survive a page reload.
+The tests simulate the AI and never call the network.
 
-## Files
+## Code layout
 
-- `app.py` – Streamlit UI and navigation
-- `catalog.py` – sample product catalog and search
-- `pricing.py` – delivered-price model and supplier score
-- `listing_parser.py` – rule-based extraction from pasted listing text
-- `translation_agent.py` – AI query translation for Chinese marketplaces (optional, needs an API key)
-- `messages.py` – supplier chat: outgoing translation, simulated supplier, reply analysis, deal terms
-- `llm.py` – shared Anthropic API wrapper (returns "not available" reasons instead of failing)
+```
+app.py                 page setup + router
+core/                  business logic, no UI
+  catalog.py           sample catalog (data/catalog.json), search, demo links
+  pricing.py           delivered price: ECB rates, shipping modes, duty, VAT
+  supplier_score.py    supplier reliability score (sample rules; replace with the real model)
+  ai.py                the one Anthropic API wrapper ("not available" reasons instead of errors)
+  query_translation.py search -> Chinese buyer query
+  messages.py          chat: outgoing translation, simulated supplier, reply analysis, deal terms
+  listing.py           Link paste: AI reading of screenshot/text + rule-based fallback
+  orders.py            orders and the simulated payment flow
+components/            app state + URL, CSS, shared UI pieces
+views/                 one module per page (home, results, product, link_paste, messages, checkout, compare)
+data/catalog.json      20 sample products
+tests/                 pytest suite
+```
+
+Conversations and orders are saved to `conversations.json` / `orders.json` (git-ignored) so the
+demo survives a page reload.

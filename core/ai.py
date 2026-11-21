@@ -1,9 +1,11 @@
-"""Small shared wrapper around the Anthropic SDK used by the Messages section.
+"""The one wrapper around the Anthropic SDK used by every AI feature
+(query translation, messages, listing reading).
 
 ask() returns (result, None) on success or (None, reason) when the AI service is
 not available, so the UI can say why instead of showing made-up text.
 Credentials: ANTHROPIC_API_KEY (env var or Streamlit secrets, passed in with
 set_api_key), or any credential the SDK resolves on its own.
+Change MODEL here to switch every feature to another model.
 """
 
 import json

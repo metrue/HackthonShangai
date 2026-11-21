@@ -15,10 +15,10 @@ import os
 import time
 import uuid
 
-from llm import ask
-from pricing import unit_price_cny
+from core.ai import ask
+from core.pricing import unit_price_cny
 
-STORE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "conversations.json")
+STORE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "conversations.json")
 
 TONES = {
     "polite": "warm and very courteous, builds the relationship",
