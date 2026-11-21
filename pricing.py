@@ -5,8 +5,9 @@ must not be used as customs, tax or freight quotes.
 """
 
 # Sample exchange rates: units of local currency per 1 CNY
-FX = {"EUR": 0.128, "GBP": 0.109, "USD": 0.139, "CAD": 0.193, "AUD": 0.213}
-SYMBOL = {"EUR": "€", "GBP": "£", "USD": "$", "CAD": "C$", "AUD": "A$"}
+FX = {"EUR": 0.128, "USD": 0.139, "GBP": 0.109, "CAD": 0.193, "AUD": 0.213, "CNY": 1.0}
+SYMBOL = {"EUR": "€", "USD": "$", "GBP": "£", "CAD": "C$", "AUD": "A$", "CNY": "¥"}
+CURRENCIES = list(FX)
 
 # region: used for duty lookup. duty_base: "CIF" = product + shipping, "FOB" = product only
 COUNTRIES = {
@@ -47,10 +48,12 @@ def unit_price_cny(tiers, qty):
     return price
 
 
-def delivered(product, qty, country):
-    """Return a dict of cost lines in local currency. None = not available."""
+def delivered(product, qty, country, currency=None):
+    """Return a dict of cost lines in the chosen currency (default: the
+    delivery country's currency). None = not available."""
     c = COUNTRIES[country]
-    fx = FX[c["currency"]]
+    currency = currency or c["currency"]
+    fx = FX[currency]
     qty = max(1, int(qty))
     unit_cny = unit_price_cny(product.get("tiers"), qty)
     weight = product.get("weight_kg")
@@ -78,7 +81,7 @@ def delivered(product, qty, country):
         return None if v is None else v * fx
 
     return dict(
-        currency=c["currency"], symbol=SYMBOL[c["currency"]], qty=qty,
+        currency=currency, symbol=SYMBOL[currency], qty=qty,
         unit_cny=unit_cny, duty_rate=duty_rate, vat_rate=c["vat"], tax_name=c["tax_name"],
         duty_base=c["duty_base"], freight_cny_kg=c["freight_cny_kg"],
         below_moq=(product.get("moq") is not None and qty < product["moq"]),
