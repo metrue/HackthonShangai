@@ -48,32 +48,46 @@ FX_FAIL_TTL = 15 * 60     # after a failure, retry in 15 minutes (never block ev
 _fx = dict(FALLBACK_FX, CNY=1.0)
 _fx_info = {"source": "sample rate (live rate not loaded)", "date": None, "live": False}
 _fx_checked = None
+_fx_thread = None
 _fx_lock = threading.Lock()
 
 
-def refresh_fx(timeout=3):
-    """Load live ECB rates if the cached ones are stale. Safe to call on every page."""
-    global _fx_checked
-    with _fx_lock:
-        ttl = FX_OK_TTL if _fx_info["live"] else FX_FAIL_TTL
-        if _fx_checked is not None and time.monotonic() - _fx_checked < ttl:
-            return _fx_info
-        _fx_checked = time.monotonic()
-        symbols = ",".join(FALLBACK_FX)
-        for url in FX_URLS:
-            try:
-                with urllib.request.urlopen(url.format(symbols=symbols), timeout=timeout) as r:
-                    data = json.loads(r.read().decode())
-                rates = {cur: float(v) for cur, v in data["rates"].items() if cur in FALLBACK_FX}
-                if rates:
+def _fetch_fx(timeout):
+    symbols = ",".join(FALLBACK_FX)
+    for url in FX_URLS:
+        try:
+            with urllib.request.urlopen(url.format(symbols=symbols), timeout=timeout) as r:
+                data = json.loads(r.read().decode())
+            rates = {cur: float(v) for cur, v in data["rates"].items() if cur in FALLBACK_FX}
+            if rates:
+                with _fx_lock:
                     _fx.update(rates)
                     _fx_info.update(source="ECB", date=data.get("date"), live=True)
-                    return _fx_info
-            except Exception:
-                continue
+                return
+        except Exception:
+            continue
+    with _fx_lock:
         if not _fx_info["live"]:
             _fx_info.update(source="sample rate (live ECB rate unavailable)", date=None)
-        return _fx_info
+
+
+def refresh_fx(timeout=8, wait=False):
+    """Refresh the ECB rates if they are stale. Safe to call on every page: the request runs in
+    the background (the first request can take several seconds), so pages never wait for it;
+    until it arrives the sample rates are used and labelled as such. wait=True blocks (tests)."""
+    global _fx_checked, _fx_thread
+    with _fx_lock:
+        ttl = FX_OK_TTL if _fx_info["live"] else FX_FAIL_TTL
+        fresh = _fx_checked is not None and time.monotonic() - _fx_checked < ttl
+        running = _fx_thread is not None and _fx_thread.is_alive()
+        if not fresh and not running:
+            _fx_checked = time.monotonic()
+            _fx_thread = threading.Thread(target=_fetch_fx, args=(timeout,), daemon=True)
+            _fx_thread.start()
+        thread = _fx_thread
+    if wait and thread is not None:
+        thread.join()
+    return fx_info()
 
 
 def fx_rate(currency):
@@ -272,101 +286,3 @@ def compare_modes(product, qty, country, currency=None):
     """Delivered cost for every mode serving the country, cheapest first (unknown last)."""
     out = [delivered(product, qty, country, currency, m) for m in available_modes(country)]
     return sorted(out, key=lambda d: d["total"] if d["total"] is not None else float("inf"))
-
-
-# ---------------------------------------------------------------------------
-# SUPPLIER SCORE
-# ---------------------------------------------------------------------------
-
-def supplier_score(s):
-    """Sample reliability score 0-100 with the reasons behind it."""
-    if not s:
-        return None, [("No supplier data available", 0)]
-    score = 50
-    reasons = []
-
-    def add(text, pts):
-        nonlocal score
-        score += pts
-        reasons.append((text, pts))
-
-    t = s.get("type")
-    if t == "factory":
-        add("Manufacturer (factory): direct source, fewer markups", 10)
-    elif t == "store":
-        add("Store / retailer: reseller, usually higher prices", 3)
-    elif t == "middleman":
-        add("Trading company / middleman: extra layer between you and the factory", -5)
-    else:
-        reasons.append(("Seller type: not available", 0))
-
-    y = s.get("years")
-    if y is None:
-        reasons.append(("Years active: not available", 0))
-    elif y >= 10:
-        add(f"{y} years active", 15)
-    elif y >= 5:
-        add(f"{y} years active", 10)
-    elif y >= 2:
-        add(f"{y} years active", 4)
-    else:
-        add(f"Only {y} year(s) active", -5)
-
-    badge_pts = {"Verified supplier": 8, "Trade assurance": 7, "Onsite inspection": 5,
-                 "Brand official store": 8, "Platform self-operated": 10, "Source factory": 5,
-                 "TrustPass member": 3}
-    for b in s.get("badges") or []:
-        if b in badge_pts:
-            add(f"Badge: {b}", badge_pts[b])
-
-    r = s.get("response_rate")
-    if r is None:
-        reasons.append(("Response rate: not available", 0))
-    elif r >= 90:
-        add(f"Response rate {r}%", 5)
-    elif r < 75:
-        add(f"Low response rate {r}%", -5)
-    else:
-        add(f"Response rate {r}%", 0)
-
-    rb = s.get("repeat_buyer_rate")
-    if rb is None:
-        reasons.append(("Repeat buyer rate: not available", 0))
-    elif rb >= 30:
-        add(f"Repeat buyer rate {rb}%", 5)
-    elif rb < 10:
-        add(f"Low repeat buyer rate {rb}%", -3)
-    else:
-        add(f"Repeat buyer rate {rb}%", 0)
-
-    d = s.get("disputes")
-    if d is None:
-        reasons.append(("Dispute history: not available", 0))
-    elif d == "high":
-        add("High dispute rate", -10)
-    elif d == "medium":
-        add("Some disputes reported", -3)
-    else:
-        add("Low dispute rate", 2)
-
-    return max(0, min(100, score)), reasons
-
-
-def score_colour(score):
-    if score is None:
-        return "#9E9E9E"
-    if score >= 80:
-        return "#2E7D32"
-    if score >= 60:
-        return "#F9A825"
-    return "#C62828"
-
-
-def score_label(score):
-    if score is None:
-        return "not available"
-    if score >= 80:
-        return "High"
-    if score >= 60:
-        return "Medium"
-    return "Low"
