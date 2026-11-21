@@ -23,9 +23,28 @@ pip install -r requirements.txt
 streamlit run app.py
 ```
 
+## AI query translation (optional)
+
+With an Anthropic API key, each search is rewritten the way a Chinese buyer would type it
+(e.g. "borsa di tela con logo" -> `帆布袋定制logo`), with alternatives, tips for suppliers and live
+search links for 1688 / Taobao / JD. Searches in Italian, German, French… also match the catalog.
+Without a key the app works as before and shows "Chinese query: not available".
+
+Set the key in one of these ways (never commit it):
+
+```bash
+# environment variable
+export ANTHROPIC_API_KEY=sk-ant-...
+# or .streamlit/secrets.toml (already in .gitignore)
+ANTHROPIC_API_KEY = "sk-ant-..."
+```
+
+One API call per distinct search per day (results are cached), model `claude-sonnet-5-5`.
+
 ## Files
 
 - `app.py` – Streamlit UI and navigation
 - `catalog.py` – sample product catalog and search
 - `pricing.py` – delivered-price model and supplier score
 - `listing_parser.py` – rule-based extraction from pasted listing text
+- `translation_agent.py` – AI query translation for Chinese marketplaces (optional, needs an API key)

@@ -1,6 +1,7 @@
 import base64
 import html
 import json
+import os
 from urllib.parse import quote, urlencode
 
 import pandas as pd
@@ -11,6 +12,7 @@ from catalog import CATEGORY_STYLE, PLATFORMS, SELLER_TYPES, get_product, search
 from listing_parser import SAMPLE_LISTING, parse_listing
 from pricing import (COUNTRIES, CURRENCIES, DUTY, FX, SYMBOL, delivered, score_colour,
                      score_label, supplier_score)
+from translation_agent import plan_search
 
 st.set_page_config(page_title="SourceScan – China sourcing search", page_icon="🔎", layout="centered",
                    initial_sidebar_state="collapsed")
@@ -85,6 +87,17 @@ a.plain {{color:inherit; text-decoration:none;}}
 .prow:hover .pmore, .prow:focus .pmore, .prow:focus-within .pmore {{max-height:320px;}}
 .prow:hover .chev, .prow:focus .chev, .prow:focus-within .chev {{transform:rotate(90deg);}}
 .foot {{font-size:.75rem; color:#9ca3af; padding:10px 0 4px;}}
+
+/* ---------- AI translation strip */
+details.tr {{font-size:.85rem; margin:.35rem 0 .2rem;}}
+details.tr summary {{cursor:pointer; list-style:none; color:#4b5563;}}
+details.tr summary::-webkit-details-marker {{display:none;}}
+details.tr summary::after {{content:" ›"; color:#9ca3af;}}
+details.tr[open] summary::after {{content:" ⌄";}}
+.tr-in {{padding:.4rem 0 .2rem .9rem; border-left:2px solid rgba(128,128,128,.25); color:#4b5563;
+         line-height:1.6;}}
+.tr-in a {{color:{VERMILION}; font-weight:600; text-decoration:none;}}
+.tr-in ul {{margin:.1rem 0 .2rem 1rem; padding:0;}}
 
 @media (min-width: 640px) {{
   .block-container {{padding-top: 2rem;}}
@@ -221,15 +234,81 @@ def image_html(p, height=150):
             f"style='width:100%;max-height:{height}px;object-fit:contain;border-radius:12px'/>")
 
 
-def search_link(p):
-    """Sample products have no real listing; offer a platform search instead."""
-    kw = quote(p.get("title_cn") or p.get("title_en") or "")
+def platform_search_url(platform, keywords):
+    kw = quote(keywords or "")
     return {
         "1688": f"https://s.1688.com/selloffer/offer_search.htm?keywords={kw}",
         "Taobao": f"https://s.taobao.com/search?q={kw}",
         "JD": f"https://search.jd.com/Search?keyword={kw}",
         "Yiwugo": "https://www.yiwugo.com/",
-    }.get(p.get("platform"))
+    }.get(platform)
+
+
+def search_link(p):
+    """Sample products have no real listing; offer a platform search instead."""
+    return platform_search_url(p.get("platform"), p.get("title_cn") or p.get("title_en"))
+
+
+# --------------------------------------------------------------------------- AI query translation
+def get_api_key():
+    key = os.getenv("ANTHROPIC_API_KEY")
+    if key:
+        return key
+    try:
+        return st.secrets.get("ANTHROPIC_API_KEY")
+    except Exception:  # no secrets.toml
+        return None
+
+
+class _PlanUnavailable(Exception):
+    pass
+
+
+@st.cache_data(ttl=24 * 3600, show_spinner=False, max_entries=500)
+def _cached_plan(query, _api_key):
+    plan, reason = plan_search(query, _api_key)
+    if plan is None:
+        raise _PlanUnavailable(reason)  # failures are not cached, so a fixed key works at once
+    return plan
+
+
+def translated(query):
+    """(plan, None) or (None, reason). One API call per distinct query per day."""
+    if not query:
+        return None, None
+    try:
+        return _cached_plan(query, get_api_key()), None
+    except _PlanUnavailable as e:
+        return None, str(e)
+
+
+def translation_strip(plan, reason, via_translation):
+    """One quiet line under the search title; details fold out on tap/hover."""
+    if plan is None:
+        if reason:
+            st.markdown(f"<div class='muted' style='font-size:.8rem'>Chinese query: "
+                        f"<span class='na'>{NA}</span> · {esc(reason)}</div>", unsafe_allow_html=True)
+        return
+    zh = esc(plan["query_zh"])
+    links = " · ".join(
+        f"<a href='{platform_search_url(p, plan['query_zh'])}' target='_blank' rel='noopener'>{p} ↗</a>"
+        for p in ("1688", "Taobao", "JD"))
+    alts = " · ".join(esc(a) for a in plan["alternative_queries_zh"]) or NA
+    tips = "".join(f"<li>{esc(c)}</li>" for c in plan["clarify"])
+    matched = " · matched via translation" if via_translation else ""
+    st.markdown(
+        f"<details class='tr'><summary>Searched as <b>{zh}</b> "
+        f"<span class='muted'>· {esc(plan['query_zh_meaning_en'])}{matched}</span></summary>"
+        f"<div class='tr-in'>"
+        f"<div>{esc(plan['pinyin'])} · {esc(plan['detected_language'])}</div>"
+        f"<div>Intent: {esc(plan['intent_en'])}</div>"
+        f"<div>Alternatives: {alts}</div>"
+        f"<div>Search it live: {links}</div>"
+        + (f"<div>To get better offers, tell suppliers:<ul>{tips}</ul></div>" if tips else "")
+        + f"<div>{tag('AI translation — check before sending', 'est')}</div>"
+        f"</div></details>",
+        unsafe_allow_html=True,
+    )
 
 
 def nav_bar():
@@ -405,7 +484,18 @@ def best_card(rows, sym):
 
 def page_results():
     sym = SYMBOL[S.cur]
-    base = search(S.q)
+    plan, reason = None, None
+    if S.q:
+        with st.spinner("Translating your search for Chinese marketplaces…"):
+            plan, reason = translated(S.q)
+    base, via_translation = [], False
+    if plan and plan["keywords_en"]:
+        # the AI's English product keywords match the catalog better than raw text
+        # (e.g. "borsa di tela con logo" -> "tote bag", "canvas")
+        base = search(" ".join(plan["keywords_en"]))
+        via_translation = bool(base) and plan["detected_language"].lower() != "english"
+    if not base:
+        base = search(S.q)
     rows = enrich(base)
 
     # ---- sidebar filters (collapsed by default, out of the way on mobile)
@@ -444,6 +534,7 @@ def page_results():
         f"<div class='rh-sub'>{S.qty:,} units · to {S.country} · {S.cur}{budget_txt}</div>",
         unsafe_allow_html=True,
     )
+    translation_strip(plan, reason, via_translation)
     with st.popover("Quantity · country · currency · budget", use_container_width=False):
         bound(st.number_input, "Quantity", "qty", min_value=1, step=50)
         bound(st.selectbox, "Delivery country", "country", options=list(COUNTRIES))

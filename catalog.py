@@ -5,6 +5,8 @@ from a live listing on any platform. Fields set to None are genuinely unknown
 and are displayed as "not available" in the app.
 """
 
+import re
+
 PLATFORMS = ["1688", "Taobao", "JD", "Yiwugo"]
 SELLER_TYPES = ["factory", "store", "middleman"]
 
@@ -393,7 +395,8 @@ def search(query):
     results = []
     for p in PRODUCTS:
         hay = f"{p['title_en']} {p['keywords']} {p['category']}".lower()
-        hits = sum(1 for t in tokens if t in hay)
+        # whole words only (plural allowed): "mat" must not match "matte"
+        hits = sum(1 for t in tokens if re.search(r"\b" + re.escape(t) + r"(s|es)?\b", hay))
         if hits:
             results.append((hits, p))
     if not results:
