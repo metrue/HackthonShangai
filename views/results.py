@@ -3,8 +3,8 @@
 import streamlit as st
 
 from components.state import S, bound, go, link
-from components.ui import (NA, currency_label, esc, fx_line_short, image_uri,
-                           messages_link, money, platform_search_url, platform_tag, tag, units)
+from components.ui import (NA, band, currency_label, esc, fx_line_short, image_uri, money,
+                           platform_search_url, platform_tag, tag, units)
 from core import query_translation
 from core.catalog import PLATFORMS, SELLER_TYPES, search
 from core.pricing import COUNTRIES, CURRENCIES, SYMBOL, delivered
@@ -147,17 +147,21 @@ def page_results():
         via_translation = bool(base) and plan["detected_language"].lower() != "english"
     if not base:
         base = search(S.q)
-    # ---- header first, so the page shows something while Yiwugo answers
+    # ---- header first (in the dark band), so the page shows something while Yiwugo answers
     budget_txt = f" · max {money(S.budget, sym)}/unit" if S.budget else ""
-    st.markdown(
-        f"<div style='display:flex;justify-content:space-between'>"
-        f"<a class='rh-back' href='{link(view='home', tab='search', pid=None)}' target='_self'>← New search</a>"
-        f"<span style='font-size:.9rem'>{messages_link()}</span></div>"
-        f"<div class='rh-q'>“{esc(S.q) or 'All products'}”</div>"
-        f"<div class='rh-sub'>{S.qty:,} units · to {S.country} · {S.cur}{budget_txt}</div>",
-        unsafe_allow_html=True,
-    )
-    translation_strip(plan, reason, via_translation)
+    with band():
+        st.markdown(
+            f"<a class='rh-back' href='{link(view='home', tab='search', pid=None)}' target='_self'>← New search</a>"
+            f"<div class='rh-q'>“{esc(S.q) or 'All products'}”</div>"
+            f"<div class='rh-sub'>{S.qty:,} units · to {S.country} · {S.cur}{budget_txt}</div>",
+            unsafe_allow_html=True,
+        )
+        translation_strip(plan, reason, via_translation)
+        with st.popover("Change quantity, country, currency", width="content"):
+            bound(st.number_input, "Quantity", "qty", min_value=1, step=50)
+            bound(st.selectbox, "Delivery country", "country", options=list(COUNTRIES))
+            bound(st.selectbox, "Currency", "cur", options=CURRENCIES, format_func=currency_label)
+            bound(st.number_input, f"Max budget per unit ({S.cur}, 0 = none)", "budget", min_value=0.0, step=0.5)
     pill_kw = dict(selection_mode="multi", format_func=_market_label, help=(
         "Turn a marketplace off to hide it. Yiwugo is read from the site. "
         "1688, Taobao and JD are sample data."))
@@ -166,11 +170,6 @@ def page_results():
     st.pills("Marketplaces", PLATFORMS, key="_w_markets", wrap=True, **pill_kw)
     st.toggle("Real listings only", key="_w_real_only",
               help="Hide the sample catalog and show only listings read from Yiwugo.")
-    with st.popover("Change quantity, country, currency", width="content"):
-        bound(st.number_input, "Quantity", "qty", min_value=1, step=50)
-        bound(st.selectbox, "Delivery country", "country", options=list(COUNTRIES))
-        bound(st.selectbox, "Currency", "cur", options=CURRENCIES, format_func=currency_label)
-        bound(st.number_input, f"Max budget per unit ({S.cur}, 0 = none)", "budget", min_value=0.0, step=0.5)
 
     # ---- live Yiwugo listings
     live, live_err = [], None

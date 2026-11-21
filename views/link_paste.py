@@ -57,8 +57,13 @@ def _analyze():
         S.lp_result = {"kind": "error", "msg": f"Could not read the screenshot — {err}"}
 
 
-def render_link_paste():
-    st.text_input("Paste a link", key="lp_url", placeholder="https://detail.1688.com/offer/…")
+def render_link_form():
+    """The input part (shown in the dark band on the home page)."""
+    c_url, c_go = st.columns([4, 1])
+    with c_url:
+        st.text_input("Paste a link", key="lp_url", placeholder="https://detail.1688.com/offer/…")
+    with c_go:
+        st.button("Analyze", type="primary", on_click=_analyze, width="stretch", key="lp_go")
     st.button("Try a sample link", type="tertiary", on_click=_use_sample_link)
     st.file_uploader("Screenshot of the listing (optional)", type=["png", "jpg", "jpeg", "webp"], key="lp_img",
                      help="Needed for links outside our sample catalog: we read the page from your screenshot.")
@@ -66,8 +71,15 @@ def render_link_paste():
         st.text_area("Page text", key="lp_text", height=180, label_visibility="collapsed",
                      placeholder="Copy the title, prices, MOQ, specs and shop info from the page")
         st.button("Use an example listing", on_click=_use_sample_text)
-    st.button("Analyze", type="primary", on_click=_analyze, width="stretch")
 
+
+def render_link_paste():
+    render_link_form()
+    render_link_result()
+
+
+def render_link_result():
+    """The analysis (shown below the band)."""
     r = S.get("lp_result")
     if not r:
         return
