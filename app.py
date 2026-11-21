@@ -10,8 +10,9 @@ import streamlit.components.v1 as components
 
 from catalog import CATEGORY_STYLE, PLATFORMS, SELLER_TYPES, get_product, search
 from listing_parser import SAMPLE_LISTING, parse_listing
-from pricing import (COUNTRIES, CURRENCIES, DUTY, FX, SYMBOL, delivered, score_colour,
-                     score_label, supplier_score)
+from pricing import (COUNTRIES, CURRENCIES, CURRENCY_NAMES, DUTY, MODE_LABEL, SYMBOL, TRANSIT_DAYS,
+                     compare_modes, delivered, fx_rate, refresh_fx, score_colour, score_label,
+                     supplier_score)
 from translation_agent import plan_search
 
 st.set_page_config(page_title="SourceScan – China sourcing search", page_icon="🔎", layout="centered",
@@ -87,6 +88,19 @@ a.plain {{color:inherit; text-decoration:none;}}
 .prow:hover .pmore, .prow:focus .pmore, .prow:focus-within .pmore {{max-height:320px;}}
 .prow:hover .chev, .prow:focus .chev, .prow:focus-within .chev {{transform:rotate(90deg);}}
 .foot {{font-size:.75rem; color:#9ca3af; padding:10px 0 4px;}}
+
+/* ---------- delivered price receipt (mobile-first) */
+.rcpt {{margin:.4rem 0 .8rem;}}
+.rr {{display:flex; justify-content:space-between; gap:12px; padding:9px 0;
+      border-bottom:1px solid rgba(128,128,128,.18);}}
+.rl {{flex:1; min-width:0; font-size:.95rem;}}
+.rb {{display:block; color:#9ca3af; font-size:.78rem; line-height:1.35; margin-top:1px;}}
+.ra {{text-align:right; white-space:nowrap; font-variant-numeric:tabular-nums;}}
+.ra-main {{display:block; font-weight:600;}}
+.ra-per {{display:block; color:#9ca3af; font-size:.78rem;}}
+.rr.rt {{border-bottom:none; border-top:2px solid currentColor; margin-top:2px;}}
+.rr.rt .rl, .rr.rt .ra-main {{font-weight:800; font-size:1.1rem;}}
+.rr.rt .ra-main {{color:{VERMILION};}}
 
 /* ---------- AI translation strip */
 details.tr {{font-size:.85rem; margin:.35rem 0 .2rem;}}
@@ -181,6 +195,11 @@ def bound(widget, label, name, **kw):
 
 init_state()
 sync_url()
+refresh_fx()  # live ECB rates, refreshed at most every 6 h (15 min after a failure)
+
+
+def currency_label(c):
+    return f"{SYMBOL[c].strip()} {CURRENCY_NAMES[c]}" if SYMBOL[c].strip() != c else f"{c} · {CURRENCY_NAMES[c]}"
 
 
 # --------------------------------------------------------------------------- helpers
@@ -210,6 +229,26 @@ def esc(s):
 
 def tag(text, kind="sample"):
     return f"<span class='tag tag-{kind}'>{text}</span>"
+
+
+def fx_line(currency):
+    """Where the exchange rate comes from, always visible next to converted prices."""
+    from pricing import fx_info
+    info = fx_info()
+    rate = f"1 CNY = {SYMBOL[currency]}{fx_rate(currency):,.4f}"
+    if currency == "CNY":
+        return "Prices in Chinese yuan, no conversion"
+    if info["live"]:
+        return f"{rate} · ECB reference rate of {info['date']}"
+    return f"{rate} · sample rate (live ECB rate unavailable)"
+
+
+def fx_line_short():
+    from pricing import fx_info
+    info = fx_info()
+    if S.cur == "CNY":
+        return "prices in CNY"
+    return f"ECB rate {info['date']}" if info["live"] else "sample exchange rate"
 
 
 def score_pill(score):
@@ -354,8 +393,7 @@ div[data-testid="stFormSubmitButton"] button {height:3.2rem; border-radius:14px;
     with st.form("search_form", border=False):
         query = st.text_input("What are you looking for?", value=S.q, label_visibility="collapsed",
                               placeholder="What are you looking for?")
-        cur = st.segmented_control("Currency", CURRENCIES, default=S.cur, label_visibility="collapsed",
-                                   format_func=lambda c: f"{SYMBOL[c]} {c}" if SYMBOL[c] != c else c)
+        cur = st.selectbox("Currency", CURRENCIES, index=CURRENCIES.index(S.cur), format_func=currency_label)
         submitted = st.form_submit_button("Search", type="primary", use_container_width=True)
     if submitted:
         go("results", q=query.strip(), cur=cur or S.cur, pid=None, cmp=[])
@@ -391,9 +429,10 @@ def row_details(r, sym, extra=""):
     p, d = r["p"], r["d"]
     q = d["qty"]
     if r["ok"]:
-        taxes = (d["duty"] or 0) + (d["vat"] or 0)
-        costs = (f"Product {money(d['product'] / q, sym)} · Shipping {money(d['shipping'] / q, sym)} · "
-                 f"Duty + tax {money(taxes / q, sym)} <span class='muted'>per unit, est.</span><br>")
+        taxes = d["duty"] + d["vat"] + d["clearance"]
+        costs = (f"Product {money(d['product'] / q, sym)} · Shipping {money((d['shipping'] + d['insurance']) / q, sym)} · "
+                 f"Duty, VAT &amp; customs {money(taxes / q, sym)} <span class='muted'>per unit, est.</span><br>"
+                 f"{d['mode_label']} · {d['transit_days']} days<br>")
     else:
         costs = f"<span class='na'>{why_not(r)}</span><br>"
     moq = units(p["moq"]) if p.get("moq") is not None else f"<span class='na'>{NA}</span>"
@@ -475,8 +514,8 @@ def best_card(rows, sym):
         f"<div class='save-sub'>{save_sub}</div>"
         f"{range_html}"
         f"<div class='plist'>{''.join(rows_html)}</div>"
-        f"<div class='foot'>Estimated price incl. shipping, duty and tax · Sample catalog · "
-        f"tap or hover a platform for details</div>"
+        f"<div class='foot'>Estimated price incl. shipping (cheapest method for {S.qty:,} units), duty, "
+        f"VAT and customs · {fx_line_short()} · Sample catalog · tap or hover a platform for details</div>"
         f"</div>",
         unsafe_allow_html=True,
     )
@@ -538,7 +577,7 @@ def page_results():
     with st.popover("Quantity · country · currency · budget", use_container_width=False):
         bound(st.number_input, "Quantity", "qty", min_value=1, step=50)
         bound(st.selectbox, "Delivery country", "country", options=list(COUNTRIES))
-        bound(st.segmented_control, "Currency", "cur", options=CURRENCIES)
+        bound(st.selectbox, "Currency", "cur", options=CURRENCIES, format_func=currency_label)
         bound(st.number_input, f"Max budget per unit ({S.cur}, 0 = none)", "budget", min_value=0.0, step=0.5)
 
     if not base:
@@ -610,8 +649,10 @@ document.getElementById('b').onclick = async () => {{
     )
 
 
-COUNTRY_CN = {"Italy": "意大利", "Germany": "德国", "France": "法国", "Spain": "西班牙", "Netherlands": "荷兰",
-              "United Kingdom": "英国", "United States": "美国", "Canada": "加拿大", "Australia": "澳大利亚"}
+COUNTRY_CN = {"Italy": "意大利", "Germany": "德国", "France": "法国", "Spain": "西班牙", "Portugal": "葡萄牙",
+              "Netherlands": "荷兰", "Sweden": "瑞典", "Denmark": "丹麦", "Poland": "波兰",
+              "Czech Republic": "捷克", "Hungary": "匈牙利", "Romania": "罗马尼亚", "United Kingdom": "英国",
+              "Switzerland": "瑞士", "Norway": "挪威", "Iceland": "冰岛", "United States": "美国"}
 
 
 def contact_message(p, qty, country):
@@ -673,14 +714,17 @@ def render_detail(p, source="catalog"):
 
         st.markdown("**Price tiers** (as listed by the seller)")
         if p.get("tiers"):
-            fx, sym = FX[S.cur], SYMBOL[S.cur]
+            fx, sym = fx_rate(S.cur), SYMBOL[S.cur]
             tiers = sorted(p["tiers"])
             rows = []
             for i, (mq, price) in enumerate(tiers):
                 rng = f"{mq:,} – {tiers[i+1][0]-1:,}" if i + 1 < len(tiers) else f"{mq:,}+"
-                rows.append({"Quantity": rng, "Price (CNY)": f"¥{price:,.2f}",
-                             f"≈ {S.cur} (sample FX)": f"{sym}{price*fx:,.2f}"})
+                row = {"Quantity": rng, "Price (CNY)": f"¥{price:,.2f}"}
+                if S.cur != "CNY":
+                    row[f"≈ {S.cur}"] = f"{sym}{price*fx:,.2f}"
+                rows.append(row)
             st.dataframe(pd.DataFrame(rows), hide_index=True, use_container_width=False)
+            st.caption(fx_line(S.cur))
         else:
             st.markdown(f"<span class='na'>{NA}</span>", unsafe_allow_html=True)
 
@@ -692,8 +736,19 @@ def render_detail(p, source="catalog"):
         countries = list(COUNTRIES)
         country = c2.selectbox("Delivery country", countries, index=countries.index(S.country),
                                key=f"country_{key}")
-        d = delivered(p, qty, country, S.cur)
-        sym = d["symbol"]
+        sym = SYMBOL[S.cur]
+
+        # shipping method: cheapest first, each with its transit time and price
+        by_mode = {d["mode"]: d for d in compare_modes(p, qty, country, S.cur)}
+
+        def mode_name(m):
+            d_ = by_mode[m]
+            price = money(d_["per_unit"], sym) + "/unit" if d_["per_unit"] is not None else NA
+            return f"{MODE_LABEL[m]} · {TRANSIT_DAYS[m]} days · {price}"
+
+        mode = st.radio("Shipping method (cheapest first)", list(by_mode), format_func=mode_name,
+                        key=f"mode_{key}_{country}_{qty}")
+        d = by_mode[mode]
         if d["below_moq"]:
             st.warning(f"{qty:,} units is below the MOQ of {p['moq']:,}. The seller may refuse or "
                        "charge more; the lowest listed tier price is used.")
@@ -701,33 +756,44 @@ def render_detail(p, source="catalog"):
         def per(v):
             return None if v is None else v / qty
 
-        duty_lbl = (f"Import duty ({d['duty_rate']*100:.1f}% on "
-                    f"{'product + shipping' if d['duty_base'] == 'CIF' else 'product value'})"
-                    if d["duty_rate"] is not None else "Import duty (rate not available for this category)")
-        vat_lbl = f"{d['tax_name']} ({d['vat_rate']*100:.0f}%)"
+        if d["duty_pct"] is None:
+            duty_lbl, duty_basis = "Import duty", "rate not available for this product category"
+        else:
+            duty_lbl = f"Import duty ({d['duty_pct']:g}%)"
+            duty_basis = "on product value" if d["duty_on_goods_only"] else "on product + shipping + insurance"
+        kg = f"{d['charged_kg']:,.1f} kg chargeable" if d["charged_kg"] is not None else "needs weight — not available"
         lines = [
             ("Product", d["product"], f"{cny(d['unit_cny'])}/unit × {qty:,}"),
-            ("Shipping", d["shipping"],
-             f"Air freight ¥{d['freight_cny_kg']}/kg + China domestic + ¥150 handling"
-             if p.get("weight_kg") is not None else "needs weight — not available"),
-            (duty_lbl, d["duty"], "estimate"),
-            (vat_lbl, d["vat"], "estimate"),
+            (f"Shipping · {d['mode_label']}", d["shipping"], f"{kg} + China domestic transport"),
+            ("Insurance (0.5%)", d["insurance"], "of product value"),
+            (duty_lbl, d["duty"], duty_basis),
+            ("Customs clearance", d["clearance"],
+             "included by the courier" if d["clearance"] == 0 else "broker fee per shipment"),
+            (f"{d['tax_name']} ({d['vat_pct']:g}%)" if d["vat_pct"] else d["tax_name"], d["vat"],
+             "on all of the above" if d["vat_pct"] else ""),
         ]
-        table = pd.DataFrame(
-            [{"Cost": n, "Total": money(v, sym), "Per unit": money(per(v), sym, 3), "Basis": b}
-             for n, v, b in lines]
-            + [{"Cost": "TOTAL delivered", "Total": money(d["total"], sym),
-                "Per unit": money(d["per_unit"], sym, 3), "Basis": ""}]
-        )
-        st.dataframe(table, hide_index=True, use_container_width=True)
-        m1, m2, m3 = st.columns(3)
-        m1.metric("Delivered price per unit", money(d["per_unit"], sym))
-        m2.metric("Total delivered", money(d["total"], sym))
-        m3.metric("Seller price per unit", money(d["product_per_unit"], sym),
-                  help="Converted from CNY at the sample exchange rate")
-        st.markdown(tag("Estimated", "est") + "<span class='muted'>Sample freight, duty, VAT and FX rates. "
-                    "Real quotes depend on HS code, incoterms, volume weight and the forwarder.</span>",
-                    unsafe_allow_html=True)
+        def amount(v, per_v, strong=False):
+            if v is None:
+                return f"<span class='na'>{NA}</span>"
+            return (f"<span class='ra-main'>{money(v, sym)}</span>"
+                    f"<span class='ra-per'>{money(per_v, sym, 3)}/unit</span>")
+
+        rows_html = "".join(
+            f"<div class='rr'><div class='rl'>{esc(n)}<span class='rb'>{esc(b)}</span></div>"
+            f"<div class='ra'>{amount(v, per(v))}</div></div>" for n, v, b in lines)
+        st.markdown(
+            f"<div class='rcpt'>{rows_html}"
+            f"<div class='rr rt'><div class='rl'>Total delivered<span class='rb'>{units(qty)} · "
+            f"{d['mode_label'].lower()}, {d['transit_days']} days</span></div>"
+            f"<div class='ra'>{amount(d['total'], d['per_unit'])}</div></div></div>",
+            unsafe_allow_html=True)
+        st.markdown(f"<div class='muted'>Price on the original listing: {cny(d['unit_cny'])}/unit "
+                    f"≈ {money(d['product_per_unit'], sym)}</div>", unsafe_allow_html=True)
+        for n in d["notes"]:
+            st.caption(f"• {n}")
+        st.markdown(tag("Estimated", "est") + f"<span class='muted'>{fx_line(S.cur)}. Freight, duty and "
+                    "VAT are sample estimates, not a quote: real costs depend on HS code, box size, "
+                    "incoterms and the forwarder.</span>", unsafe_allow_html=True)
 
     # ---- 3. Supplier
     st.subheader("3 · Supplier")
@@ -814,6 +880,7 @@ def page_compare():
             "Delivered / unit (est.)": money(d["per_unit"], d["symbol"]),
             "Total delivered (est.)": money(d["total"], d["symbol"]),
             "Seller price / unit": cny(d["unit_cny"]),
+            "Shipping": f"{d['mode_label']} · {d['transit_days']} days" if d["mode"] else NA,
             "MOQ": f"{p['moq']:,}" if p["moq"] is not None else NA,
             "Lead time": f"{p['production_days']} days" if p["production_days"] is not None else NA,
             "Supplier score": f"{score}/100 ({score_label(score)})" if score is not None else NA,
