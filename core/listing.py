@@ -213,6 +213,15 @@ def parse_listing(text):
     )
 
 
+def guess_category(text):
+    """Product category from a (Chinese or English) title, or None. Used for the duty rate."""
+    low = (text or "").lower()
+    for cat, hints in CATEGORY_HINTS:
+        if any(h.lower() in low for h in hints):
+            return cat
+    return None
+
+
 def platform_from_url(url):
     u = (url or "").lower()
     for key, name in [("1688.com", "1688"), ("taobao.com", "Taobao"), ("tmall.com", "Taobao"),

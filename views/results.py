@@ -5,11 +5,11 @@ import streamlit as st
 from components.state import S, bound, go, link
 from components.ui import (NA, currency_label, esc, fx_line_short, image_uri,
                            messages_link, money, platform_search_url, platform_tag, tag, units)
-import yiwugo
 from core import query_translation
 from core.catalog import PLATFORMS, SELLER_TYPES, search
 from core.pricing import COUNTRIES, CURRENCIES, SYMBOL, delivered
 from core.supplier_score import score_colour, supplier_score
+from views.live import live_search, with_buyer_details
 
 
 # ---------------------------------------------------------------------------- AI query translation
@@ -23,14 +23,6 @@ def _cached_plan(query):
     if plan is None:
         raise _PlanUnavailable(reason)  # failures are not cached, so a fixed key works at once
     return plan
-
-
-@st.cache_data(ttl=600, show_spinner=False)
-def yiwugo_listings(query: str):
-    try:
-        return yiwugo.search(query)
-    except Exception:
-        return []
 
 
 def translated(query):
@@ -75,6 +67,7 @@ def translation_strip(plan, reason, via_translation):
 def enrich(products):
     rows = []
     for p in products:
+        p = with_buyer_details(p)
         d = delivered(p, S.qty, S.country, S.cur)
         score, _ = supplier_score(p.get("supplier"))
         rows.append(dict(p=p, d=d, score=score, ok=d["per_unit"] is not None and not d["below_moq"]))
@@ -92,6 +85,7 @@ def product_card(r, sym, top=False, saving=None):
     The whole card opens the product page."""
     p, d, score = r["p"], r["d"], r["score"]
     tags = [platform_tag(p.get("platform")),
+            "<span class='src-tag live'>Live</span>" if p.get("live") else "<span class='src-tag'>Sample</span>",
             f"<span class='sc' style='background:{score_colour(score)}'>Supplier "
             f"{score if score is not None else 'n/a'}{'/100' if score is not None else ''}</span>"]
     if r["ok"]:
@@ -102,7 +96,8 @@ def product_card(r, sym, top=False, saving=None):
     elif p.get("live") and p.get("tiers"):
         shelf = sorted(p["tiers"])[0][1]
         price = f"<div class='pc-price'>¥{shelf:,.2f}<small>/unit on Yiwugo</small></div>"
-        sub = "Listing price, before shipping and tax. No weight on the listing, so the delivered price is not available."
+        sub = ("Listing price, before shipping and tax. The listing has no weight: open it and add "
+               "the weight to see the delivered price.")
     else:
         price = f"<div class='pc-na'>Delivered price {NA}</div>"
         sub = why_not(r)
@@ -135,13 +130,13 @@ def page_results():
         via_translation = bool(base) and plan["detected_language"].lower() != "english"
     if not base:
         base = search(S.q)
+    live, live_err = [], None
     if (S.q or "").strip():
         zh = ((plan or {}).get("query_zh") or S.q).strip()
         S.yiwugo_q = zh
-        with st.spinner("Reading Yiwugo listings…"):
-            live = yiwugo_listings(zh)
-        S.live_products = {item["id"]: item for item in live}
-        if live:
+        with st.spinner("Reading live Yiwugo listings…"):
+            live, live_err = live_search(zh)
+        if live:   # real Yiwugo listings replace the sample Yiwugo ones
             base = [item for item in base if item.get("platform") != "Yiwugo"] + live
     rows = enrich(base)
 
@@ -184,6 +179,13 @@ def page_results():
         unsafe_allow_html=True,
     )
     translation_strip(plan, reason, via_translation)
+    if live:
+        st.markdown(f"<div class='muted' style='font-size:.8rem'><span class='src-tag live'>Live</span> "
+                    f"{len(live)} listings read from yiwugo.com just now · other products: sample catalog</div>",
+                    unsafe_allow_html=True)
+    elif live_err and live_err != "off":
+        st.markdown(f"<div class='muted' style='font-size:.8rem'>Live Yiwugo listings: <span class='na'>{NA}</span>"
+                    f" · {esc(live_err)} · showing the sample catalog</div>", unsafe_allow_html=True)
     with st.popover("Change quantity, country, currency", width="content"):
         bound(st.number_input, "Quantity", "qty", min_value=1, step=50)
         bound(st.selectbox, "Delivery country", "country", options=list(COUNTRIES))
@@ -217,6 +219,11 @@ def page_results():
     # products without a delivered price at this quantity always go last
     priced = sorted((r for r in filtered if r["ok"]), key=keyfn)
     unpriced = [r for r in filtered if not r["ok"]]
+    if sort == "Lowest price":   # live listings without a delivered price: by the listing price shown
+        unpriced.sort(key=lambda r: sorted(r["p"]["tiers"])[0][1]
+                      if r["p"].get("live") and r["p"].get("tiers") else big)
+    else:
+        unpriced.sort(key=keyfn)
     best = min(priced, key=lambda r: r["d"]["per_unit"], default=None)
     saving = None
     if best and len(priced) > 1:
@@ -229,7 +236,8 @@ def page_results():
         + "</div>"
         f"<div class='foot'>Prices include shipping (cheapest method for {S.qty:,} units), duty, VAT and "
         f"customs, estimated · {fx_line_short()} · Supplier scores are sample values for now · "
-        f"Sample catalog</div>",
+        + ("Live = listing read from yiwugo.com, Sample = demo catalog" if live else "Sample catalog")
+        + "</div>",
         unsafe_allow_html=True,
     )
 

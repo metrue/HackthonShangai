@@ -8,10 +8,9 @@ from components.state import S, go
 from components.ui import (NA, cny, esc, fx_line, image_html, kv_table, receipt, sample_banner, score_pill,
                            search_link, tag, units, val)
 from core import messages as M
-from core.catalog import get_product
-from views.results import yiwugo_listings
-from core.pricing import COUNTRIES, MODE_LABEL, SYMBOL, TRANSIT_DAYS, compare_modes, delivered, fx_rate
+from core.pricing import COUNTRIES, DUTY, MODE_LABEL, SYMBOL, TRANSIT_DAYS, compare_modes, delivered, fx_rate
 from core.supplier_score import supplier_score
+from views.live import find_product, set_buyer_details
 
 
 def open_conversation(p, qty, country):
@@ -58,6 +57,30 @@ def delivered_lines(d, qty):
     ]
 
 
+def _save_buyer_details(pid):
+    w = S.get(f"lw_{pid}") or 0
+    c = S.get(f"lc_{pid}")
+    set_buyer_details(pid, w / 1000 if w > 0 else None, None if c in (None, "(not set)") else c)
+
+
+def buyer_details_box(p):
+    """Live listings have no weight: let the buyer add it (and fix the category) to get the
+    delivered price. Values are marked user-provided and reused in the results list."""
+    pid = p["id"]
+    if not p.get("weight_user") and p.get("weight_kg") is None:
+        st.markdown("**This listing has no weight.** Add the weight per unit (ask the supplier, or use a "
+                    "similar product) to see the delivered price.")
+    c1, c2 = st.columns(2)
+    c1.number_input("Weight per unit (g)", min_value=0, step=10, key=f"lw_{pid}",
+                    value=int((p.get("weight_kg") or 0) * 1000), on_change=_save_buyer_details, args=(pid,))
+    cats = ["(not set)"] + list(DUTY)
+    c2.selectbox("Product category (for the duty rate)", cats, key=f"lc_{pid}",
+                 index=cats.index(p["category"]) if p.get("category") in cats else 0,
+                 on_change=_save_buyer_details, args=(pid,))
+    if p.get("category_guessed"):
+        st.caption(f"Category guessed from the title: {p['category']}. Change it if it's wrong.")
+
+
 def render_detail(p, source="catalog"):
     key = p["id"]
     s = p.get("supplier") or {}
@@ -69,14 +92,19 @@ def render_detail(p, source="catalog"):
         with c_img:
             st.markdown(image_html(p, 260), unsafe_allow_html=True)
             if p.get("live"):
-                st.markdown(tag("Yiwugo listing"), unsafe_allow_html=True)
+                st.markdown(tag("Live Yiwugo listing", "ok"), unsafe_allow_html=True)
             elif source == "catalog":
                 st.markdown(tag("Sample catalog"), unsafe_allow_html=True)
             else:
                 st.markdown(tag(f"Read from your {source}", "est"), unsafe_allow_html=True)
         with c_info:
             st.markdown(f"### {esc(p.get('title_en') or p.get('title_cn') or NA)}")
-            if source != "catalog" and not p.get("live") and p.get("title_en"):
+            if p.get("live") and not p.get("title_en"):
+                st.markdown(tag("English name not available", "na"), unsafe_allow_html=True)
+            elif p.get("title_en_source") == "ai":
+                st.markdown(tag("English name translated by AI", "est"), unsafe_allow_html=True)
+            elif p.get("title_en_source") == "glossary" or (source != "catalog" and not p.get("live")
+                                                              and p.get("title_en")):
                 st.markdown(tag("Translated title — approximate", "est"), unsafe_allow_html=True)
             if p.get("title_cn") and p.get("title_en"):
                 st.markdown(f"<span class='muted'>Original title: {esc(p['title_cn'])}</span>",
@@ -115,6 +143,8 @@ def render_detail(p, source="catalog"):
     # ---- 2. Delivered price
     st.subheader("2 · Delivered price")
     with st.container(border=True):
+        if p.get("live"):
+            buyer_details_box(p)
         c1, c2 = st.columns([1, 1.3])
         qty = c1.number_input("Quantity", min_value=1, value=int(S.qty), step=50, key=f"qty_{key}")
         countries = list(COUNTRIES)
@@ -199,19 +229,6 @@ def render_detail(p, source="catalog"):
             slink = search_link(p)
             if slink:
                 st.link_button(f"Search similar items on {p['platform']} ↗", slink)
-
-
-def find_product(pid):
-    found = get_product(pid) or (S.get("live_products") or {}).get(pid)
-    if found or not str(pid or "").startswith("yw-"):
-        return found
-    query = (S.get("yiwugo_q") or S.q or "").strip()
-    if not query:
-        return None
-    with st.spinner("Reading the Yiwugo listing…"):
-        live = yiwugo_listings(query)
-    S.live_products = {item["id"]: item for item in live}
-    return S.live_products.get(pid)
 
 
 def page_detail():

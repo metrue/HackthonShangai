@@ -59,6 +59,9 @@ a.pc:hover .pc-title {{color:{VERMILION};}}
 .mk, .sc, .save, .best-tag {{display:inline-block; padding:1px 8px; border-radius:6px; font-size:.74rem;
        font-weight:700; color:#fff; line-height:1.6;}}
 .save {{background:{VERMILION};}}
+.src-tag {{display:inline-block; padding:0 7px; border-radius:6px; font-size:.7rem; font-weight:700;
+           line-height:1.7; color:#6b7280; border:1px solid #d1d5db;}}
+.src-tag.live {{color:#1E6B2E; border-color:#9fd3ab; background:#E7F5EA;}}
 .best-tag {{background:#111827;}}
 .pc-price {{font-size:1.5rem; font-weight:800; line-height:1.1; font-variant-numeric:tabular-nums;}}
 .pc-price small {{font-size:.75rem; font-weight:500; color:#6b7280; margin-left:4px;}}

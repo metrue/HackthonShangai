@@ -5,7 +5,7 @@ import streamlit as st
 
 from components.state import S, go, link
 from components.ui import NA, cny, money, sample_banner
-from views.product import find_product
+from views.live import find_product
 from core.pricing import delivered
 from core.supplier_score import score_label, supplier_score
 

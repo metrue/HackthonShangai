@@ -1,12 +1,18 @@
-"""Read listings from Yiwugo's public search.
+"""Read listings from Yiwugo's public search (PR #1, Minghe Huang).
 
 sellPrice on the search API is fen: 640 is ¥6.40 on the product page.
 Fields the listing does not include stay None so the app can show "not available".
+
+NOTE: this reads Yiwugo's website search endpoints, not an official API. It can stop
+working whenever Yiwugo changes its site, and automated access may conflict with
+Yiwugo's terms. Turn it off with the environment variable YIWUGO_LIVE=0: the app then
+uses only the sample catalog.
 """
 
 from __future__ import annotations
 
 import json
+import os
 import re
 import urllib.error
 import urllib.parse
@@ -17,6 +23,11 @@ UA = (
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
 )
+
+
+def enabled() -> bool:
+    """Live Yiwugo search is on unless YIWUGO_LIVE is 0 / false / off / no."""
+    return os.getenv("YIWUGO_LIVE", "1").strip().lower() not in {"0", "false", "off", "no"}
 
 
 def yuan_from_fen(value) -> float | None:
@@ -31,7 +42,7 @@ def yuan_from_fen(value) -> float | None:
     return yuan
 
 
-def _get(url: str, headers: dict | None = None, opener=None, timeout: int = 12) -> str:
+def _get(url: str, headers: dict | None = None, opener=None, timeout: int = 8) -> str:
     req_headers = {"User-Agent": UA, "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8"}
     if headers:
         req_headers.update(headers)

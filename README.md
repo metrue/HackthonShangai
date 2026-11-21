@@ -34,6 +34,17 @@ ANTHROPIC_API_KEY = "sk-ant-..."
 
 One model for every AI feature: `claude-opus-5-5` (change `MODEL` in `core/ai.py`).
 
+## Live Yiwugo listings
+
+Each search also reads real listings from yiwugo.com (PR #1): real titles, prices, MOQ, photos,
+shops and links, tagged **Live** in the results (everything else is tagged **Sample**). Yiwugo
+listings have no weight, so the buyer adds it on the product page to get the delivered price
+(marked "user-provided"). English names come from the AI, or from a small glossary without a key.
+
+This reads Yiwugo's website search, not an official API: it can stop working when Yiwugo changes
+its site, takes ~15 s per new search (cached for 10 minutes), and automated access may conflict with
+Yiwugo's terms. Turn it off with `YIWUGO_LIVE=0`; the app then uses only the sample catalog.
+
 ## Tests
 
 ```bash
@@ -56,6 +67,7 @@ core/                  business logic, no UI
   messages.py          chat: outgoing translation, simulated supplier, reply analysis, deal terms
   listing.py           Link paste: AI reading of screenshot/text + rule-based fallback
   orders.py            orders and the simulated payment flow
+  yiwugo.py            live Yiwugo search (PR #1), switch YIWUGO_LIVE
 components/            app state + URL, CSS, shared UI pieces
 views/                 one module per page (home, results, product, link_paste, messages, checkout, compare)
 data/catalog.json      20 sample products

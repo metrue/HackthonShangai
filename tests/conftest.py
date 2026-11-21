@@ -16,8 +16,7 @@ APP = os.path.join(ROOT, "app.py")
 def isolated(tmp_path, monkeypatch):
     """Own storage files, no API key, no live FX request, fresh Streamlit caches."""
     import streamlit as st
-    import yiwugo
-    from core import messages, orders, pricing
+    from core import messages, orders, pricing, yiwugo
 
     monkeypatch.setattr(messages, "STORE", str(tmp_path / "conversations.json"))
     monkeypatch.setattr(orders, "STORE", str(tmp_path / "orders.json"))
