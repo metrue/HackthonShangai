@@ -142,6 +142,7 @@ def init_state():
         if qp.get("cur") in CURRENCIES:
             S.cur = qp["cur"]
         S.pid = qp.get("pid") or None
+        S.yiwugo_q = qp.get("yq") or ""
         S.cmp = [x for x in (qp.get("cmp") or "").split(",") if get_product(x)][:3]
     except (ValueError, TypeError):
         pass
@@ -155,6 +156,8 @@ def state_params(**over):
         p["budget"] = S.budget
     if S.pid:
         p["pid"] = S.pid
+    if S.get("yiwugo_q"):
+        p["yq"] = S.yiwugo_q
     if S.cmp:
         p["cmp"] = ",".join(S.cmp)
     p.update(over)
@@ -488,6 +491,7 @@ def page_results():
         base = search(S.q)
     if (S.q or "").strip():
         zh = ((plan or {}).get("query_zh") or S.q).strip()
+        S.yiwugo_q = zh
         with st.spinner("Reading Yiwugo listings…"):
             live = _yiwugo_listings(zh)
         S.live_products = {item["id"]: item for item in live}
@@ -826,7 +830,16 @@ def render_detail(p, source="catalog"):
 
 
 def find_product(pid):
-    return get_product(pid) or (S.get("live_products") or {}).get(pid)
+    found = get_product(pid) or (S.get("live_products") or {}).get(pid)
+    if found or not str(pid or "").startswith("yw-"):
+        return found
+    query = (S.get("yiwugo_q") or S.q or "").strip()
+    if not query:
+        return None
+    with st.spinner("Reading the Yiwugo listing…"):
+        live = _yiwugo_listings(query)
+    S.live_products = {item["id"]: item for item in live}
+    return S.live_products.get(pid)
 
 
 @st.cache_data(ttl=600, show_spinner=False)
