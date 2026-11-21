@@ -64,14 +64,15 @@ def test_fx_refresh_never_blocks_and_falls_back(monkeypatch):
 # ---------------------------------------------------------------- supplier score
 def test_supplier_score_reasons():
     score, reasons = supplier_score(get_product("WB-04")["supplier"])
-    assert score == 31
-    assert ("High dispute rate", -10) in reasons
+    assert score is not None and score < 50
+    assert any("Dispute history: high" in text for text, _ in reasons)
     score, reasons = supplier_score(get_product("TB-04")["supplier"])
-    assert any("not available" in r for r, _ in reasons)
-    # a live listing that only tells the shop name: no score, not a neutral-looking 50
+    assert any("not available" in text for text, _ in reasons)
+    # a shop name alone, or a single fact, is not enough for a score
     assert supplier_score({"name": "某店", "type": None, "years": None, "badges": []})[0] is None
     assert supplier_score({"name": "某店", "years": 6, "badges": []})[0] is None
-    assert supplier_score({"type": "factory", "years": 6, "badges": []})[0] == 70
+    # 12 years is 100/100 (weight 18); a factory is 85/100 (weight 8)
+    assert supplier_score({"type": "factory", "years": 12})[0] == round((100 * 18 + 85 * 8) / 26)
 
 
 # ---------------------------------------------------------------- orders

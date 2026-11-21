@@ -194,24 +194,35 @@ def render_detail(p, source="catalog"):
                 st.markdown(f"<span class='muted'>{esc(s['name_cn'])}</span>", unsafe_allow_html=True)
             years = f"{s['years']} years" if s.get("years") is not None else None
             badges = " ".join(tag(esc(b), "est") for b in s.get("badges") or []) or None
-            st.markdown(kv_table([
+            rows = [
                 ("City", val(esc(s.get("city")) or None)),
                 ("Type", val((s.get("type") or "").capitalize() or None)),
                 ("Years active", val(years)),
                 ("Badges", val(badges)),
                 ("Response rate", val(None if s.get("response_rate") is None else f"{s['response_rate']:.0f}%")),
                 ("Repeat buyers", val(None if s.get("repeat_buyer_rate") is None else f"{s['repeat_buyer_rate']:.0f}%")),
-            ]), unsafe_allow_html=True)
+            ]
+            if "integrity_points" in s:
+                points = s.get("integrity_points")
+                rows.append(("Yiwugo integrity points", val(f"{points:,}" if points is not None else None)))
+            if s.get("market_booth"):
+                rows.append(("Booth", val(esc(s["market_booth"]))))
+            if s.get("review_avg") is not None:
+                rows.append(("Review average", val(f"{s['review_avg']:g}/5")))
+            st.markdown(kv_table(rows), unsafe_allow_html=True)
         with c2:
             st.markdown(f"Reliability score<br>{score_pill(score)}", unsafe_allow_html=True)
-            st.caption("Sample score — starts at 50, adjusted by the factors below.")
+            st.caption("Weighted average of the shop facts below. A missing fact is left out, not guessed. "
+                       "Yiwugo integrity points are scaled by us: 20,000 points = 100.")
             for text, pts in reasons:
-                if pts > 0:
-                    st.markdown(f"✅ {text} (**+{pts}**)")
-                elif pts < 0:
-                    st.markdown(f"⚠️ {text} (**{pts}**)")
+                if pts is None:
+                    st.markdown(f"<span class='muted'>• {esc(text)}</span>", unsafe_allow_html=True)
+                elif pts >= 70:
+                    st.markdown(f"✅ {esc(text)}")
+                elif pts >= 45:
+                    st.markdown(f"• {esc(text)}")
                 else:
-                    st.markdown(f"<span class='muted'>• {text}</span>", unsafe_allow_html=True)
+                    st.markdown(f"⚠️ {esc(text)}")
 
     # ---- 4. Contact
     st.subheader("4 · Contact the supplier")

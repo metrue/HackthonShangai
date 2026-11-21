@@ -66,6 +66,52 @@ def _attr(attrs: dict, names: tuple[str, ...]) -> str | None:
     return None
 
 
+def _as_int(value):
+    if isinstance(value, bool) or value in (None, ""):
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _as_bool(value):
+    if value in (1, "1", True):
+        return True
+    if value in (0, "0", False):
+        return False
+    return None
+
+
+def _review_avg(value):
+    if value in (None, "", 0, "0", "0.0"):
+        return None
+    try:
+        avg = float(value)
+    except (TypeError, ValueError):
+        return None
+    if avg <= 0 or avg > 5:
+        return None
+    return avg
+
+
+def _seller_type(name, explicit):
+    if explicit in ("factory", "store", "middleman"):
+        return explicit
+    text = name or ""
+    if "工厂" in text or text.endswith("厂"):
+        return "factory"
+    return None
+
+
+def _city_from_text(text):
+    from core.listing import CITIES
+    for zh, en in CITIES.items():
+        if zh and zh in (text or ""):
+            return en
+    return None
+
+
 def listing_from_api(item: dict, detail: dict | None) -> dict | None:
     """Catalog-shaped product. None when the search row has no positive price."""
     price = yuan_from_fen(item.get("sellPrice"))
@@ -109,6 +155,15 @@ def listing_from_api(item: dict, detail: dict | None) -> dict | None:
     title = str(item.get("title") or "").strip() or None
     shop = str(item.get("shopName") or "").strip() or None
     picture = str(item.get("picture1") or "").strip() or None
+    shop_record = ((detail or {}).get("shopinfo") or {}).get("shop") or {}
+    if not isinstance(shop_record, dict):
+        shop_record = {}
+    booth = str(item.get("marketinfo") or "").strip() or None
+    factory = str(item.get("factoryAddress") or shop_record.get("factoryAddress") or "").strip() or None
+    integrity = _as_int(shop_record.get("integrityFraction"))
+    if integrity is not None and integrity <= 0:
+        integrity = None
+    city = _city_from_text(booth) or _city_from_text(factory)
     return {
         "id": f"yw-{product_id}",
         "live": True,
@@ -129,13 +184,23 @@ def listing_from_api(item: dict, detail: dict | None) -> dict | None:
         "supplier": {
             "name": shop,
             "name_cn": shop,
-            "city": None,
-            "type": None,
+            "city": city,
+            "type": _seller_type(shop, None),
             "years": years,
-            "badges": [],
+            "badges": None,
             "response_rate": None,
             "repeat_buyer_rate": None,
             "disputes": None,
+            "integrity_points": integrity,
+            "license_on_file": _as_bool(shop_record.get("shoplicenseStatus")),
+            "invoice": _as_bool(shop_record.get("invoiceFlag")),
+            "quick_refund": _as_bool((detail or {}).get("quickRefund")),
+            "factory_on_file": True if factory else None,
+            "market_booth": booth,
+            "review_avg": _review_avg((detail or {}).get("productAvg")),
+            "listing_deals": _as_int(item.get("dealQuantity")),
+            "listing_units_sold": _as_int(item.get("sellCounts")),
+            "online_order": _as_bool(item.get("onlineOrderFlag")),
         },
     }
 

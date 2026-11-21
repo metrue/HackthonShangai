@@ -91,8 +91,30 @@ def test_listing_uses_seller_material_and_leaves_unknowns_empty():
     assert listing["material"] == "帆布" and listing["size"] == "按要求定制"
     assert listing["weight_kg"] is None and listing["title_en"] is None
     assert listing["title_cn"] == "帆布手提袋"
-    assert listing["supplier"]["years"] == 5 and listing["supplier"]["type"] is None
+    assert listing["supplier"]["years"] == 5 and listing["supplier"]["type"] == "factory"
+    assert listing["supplier"]["integrity_points"] is None
     assert listing["url"] == "https://www.yiwugo.com/product/detail/940179442.html"
+
+
+def test_shop_record_feeds_the_reliability_score():
+    from core.supplier_score import supplier_score
+    item = dict(ITEM, shopName="义乌市凯顺包装厂", dealQuantity=800, sellCounts=1200,
+                onlineOrderFlag=1, marketinfo="义乌国际商贸城一区", factoryAddress="浙江省义乌市")
+    detail = dict(DETAIL, years=6, quickRefund=1, productAvg="4.5", shopinfo={"shop": {
+        "integrityFraction": 10000, "shoplicenseStatus": "1", "invoiceFlag": 1,
+        "factoryAddress": "浙江省义乌市",
+    }})
+    listing = listing_from_api(item, detail)
+    shop = listing["supplier"]
+    assert shop["type"] == "factory" and shop["city"] == "Yiwu"
+    assert shop["integrity_points"] == 10000 and shop["license_on_file"] is True
+    assert shop["invoice"] is True and shop["quick_refund"] is True
+    assert shop["review_avg"] == 4.5 and shop["listing_deals"] == 800
+    assert shop["market_booth"] == "义乌国际商贸城一区"
+    score, reasons = supplier_score(shop)
+    assert score is not None and score >= 60
+    assert any("integrity points: 10,000" in text for text, _ in reasons)
+    assert any(mark is None and "not available" in text for text, mark in reasons)
     assert listing_from_api({"id": 1, "title": "无价", "sellPrice": None}, None) is None
 
 

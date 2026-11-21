@@ -198,8 +198,8 @@ def page_results():
         f_score = st.slider("Minimum supplier score", 0, 100, 0, step=5)
         max_moq_all = max([r["p"]["moq"] or 0 for r in rows] + [1])
         f_moq = st.number_input("Maximum MOQ", min_value=1, value=int(max_moq_all), step=50)
-        st.caption("Supplier score is a sample rule-based rating. Products with unknown score are kept "
-                   "only when minimum score is 0.")
+        st.caption("The supplier score uses only facts the listing includes. Products with no score are kept "
+                   "only when the minimum is 0.")
 
     def keep(r):
         p = r["p"]
@@ -267,7 +267,8 @@ def page_results():
         + "".join(product_card(r, sym, top=r is best, saving=saving) for r in priced + unpriced)
         + "</div>"
         f"<div class='foot'>Prices include shipping (cheapest method for {S.qty:,} units), duty, VAT and "
-        f"customs, estimated · {fx_line_short()} · Supplier scores are sample values for now · "
+        f"customs, estimated · {fx_line_short()} · Supplier score: weighted average of the shop facts "
+        f"on the listing · "
         + ("Live = listing read from yiwugo.com, Sample = demo catalog" if live else "Sample catalog")
         + "</div>",
         unsafe_allow_html=True,

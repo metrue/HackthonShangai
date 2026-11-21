@@ -1,102 +1,195 @@
-"""Supplier reliability score, 0-100, with the reasons behind it.
+"""Reliability score, 0-100, from the shop facts a listing actually includes.
 
-SAMPLE rule-based rating for the demo. Starts at 50 and adds or removes points:
-  seller type   factory +10, store +3, middleman -5
-  years active  >=10 +15, >=5 +10, >=2 +4, <2 -5
-  badges        verified +8, trade assurance +7, onsite inspection +5, brand store +8,
-                platform self-operated +10, source factory +5, TrustPass +3
-  response rate >=90% +5, <75% -5
-  repeat buyers >=30% +5, <10% -3
-  disputes      high -10, medium -3, low +2
-Missing data scores 0 and is listed as "not available". Clamped to 0-100.
-Replace supplier_score() with the real model when it is ready: the UI only uses
-supplier_score(), score_colour() and score_label().
+Each fact is scored 0-100 on its own. The result is the weighted average of the
+facts that are present. A missing fact is listed as "not available" and left out
+of the average. Nothing here is filled in.
+
+Yiwugo integrity points are Yiwugo's own total. This file scales 20,000 points to
+100 so they can sit beside the other facts. That scale is ours, not Yiwugo's grade.
 """
 
 BADGE_POINTS = {"Verified supplier": 8, "Trade assurance": 7, "Onsite inspection": 5,
                 "Brand official store": 8, "Platform self-operated": 10, "Source factory": 5,
                 "TrustPass member": 3}
 
+# weight of each fact in the average
+W_YEARS = 18
+W_TYPE = 8
+W_INTEGRITY = 22
+W_LICENSE = 8
+W_INVOICE = 6
+W_REFUND = 6
+W_FACTORY = 6
+W_BOOTH = 8
+W_REVIEWS = 14
+W_DEALS = 12
+W_UNITS = 8
+W_ONLINE = 4
+W_BADGES = 10
+W_RESPONSE = 10
+W_REPEAT = 8
+W_DISPUTES = 12
 
+INTEGRITY_FULL = 20000  # our scale: this many Yiwugo points = 100
 MIN_KNOWN_FACTORS = 2
 
 
+def _years_score(years):
+    return max(0, min(100, round(years / 12 * 100)))
+
+
+def _integrity_score(points):
+    return max(0, min(100, round(points / INTEGRITY_FULL * 100)))
+
+
+def _deal_score(n):
+    if n <= 0:
+        return 30
+    if n < 50:
+        return 45
+    if n < 200:
+        return 60
+    if n < 1000:
+        return 75
+    return 90
+
+
+def _repeat_score(rate):
+    if rate >= 40:
+        return 90
+    if rate >= 25:
+        return 75
+    if rate >= 10:
+        return 55
+    return 35
+
+
+def _badge_score(badges):
+    raw = sum(BADGE_POINTS.get(b, 0) for b in badges)
+    if raw <= 0:
+        return 40
+    return max(0, min(100, raw * 4))
+
+
 def supplier_score(s):
-    """Return (score or None, [(reason, points), ...]).
-    With fewer than 2 known factors there is not enough data: the score is None ("n/a"),
-    instead of the neutral starting value 50 looking like a real middling score."""
+    """Return (score or None, [(reason, factor_score or None), ...]).
+
+    factor_score is that fact's own 0-100 mark. None means the fact was missing
+    and was not part of the average. The score is None when fewer than two facts
+    are present, so a bare shop name does not become a middling 50.
+    """
     if not s:
-        return None, [("No supplier data available", 0)]
-    known = sum(1 for v in (s.get("type"), s.get("years"), s.get("response_rate"),
-                            s.get("repeat_buyer_rate"), s.get("disputes")) if v is not None)
-    known += 1 if s.get("badges") else 0
-    if known < MIN_KNOWN_FACTORS:
-        return None, [("Not enough supplier data to score this seller yet", 0)]
-    score = 50
+        return None, [("No supplier data available", None)]
     reasons = []
+    weighted = 0.0
+    weight = 0
 
-    def add(text, pts):
-        nonlocal score
-        score += pts
-        reasons.append((text, pts))
+    def add(text, factor, w):
+        nonlocal weighted, weight
+        reasons.append((text, factor))
+        if factor is None:
+            return
+        weighted += factor * w
+        weight += w
 
-    t = s.get("type")
-    if t == "factory":
-        add("Manufacturer (factory): direct source, fewer markups", 10)
-    elif t == "store":
-        add("Store / retailer: reseller, usually higher prices", 3)
-    elif t == "middleman":
-        add("Trading company / middleman: extra layer between you and the factory", -5)
+    years = s.get("years")
+    if years is None:
+        add("Years on the platform: not available", None, W_YEARS)
     else:
-        reasons.append(("Seller type: not available", 0))
+        mark = _years_score(years)
+        add(f"Years on the platform: {years} → {mark}/100", mark, W_YEARS)
 
-    y = s.get("years")
-    if y is None:
-        reasons.append(("Years active: not available", 0))
-    elif y >= 10:
-        add(f"{y} years active", 15)
-    elif y >= 5:
-        add(f"{y} years active", 10)
-    elif y >= 2:
-        add(f"{y} years active", 4)
+    kind = s.get("type")
+    type_mark = {"factory": 85, "store": 65, "middleman": 40}.get(kind)
+    if type_mark is None:
+        add("Seller type: not available", None, W_TYPE)
     else:
-        add(f"Only {y} year(s) active", -5)
+        add(f"Seller type: {kind} → {type_mark}/100", type_mark, W_TYPE)
 
-    for b in s.get("badges") or []:
-        if b in BADGE_POINTS:
-            add(f"Badge: {b}", BADGE_POINTS[b])
-
-    r = s.get("response_rate")
-    if r is None:
-        reasons.append(("Response rate: not available", 0))
-    elif r >= 90:
-        add(f"Response rate {r}%", 5)
-    elif r < 75:
-        add(f"Low response rate {r}%", -5)
+    points = s.get("integrity_points")
+    if points is None:
+        add("Yiwugo integrity points: not available", None, W_INTEGRITY)
     else:
-        add(f"Response rate {r}%", 0)
+        mark = _integrity_score(points)
+        add(f"Yiwugo integrity points: {points:,} → {mark}/100 on our scale "
+            f"({INTEGRITY_FULL:,} points = 100)", mark, W_INTEGRITY)
 
-    rb = s.get("repeat_buyer_rate")
-    if rb is None:
-        reasons.append(("Repeat buyer rate: not available", 0))
-    elif rb >= 30:
-        add(f"Repeat buyer rate {rb}%", 5)
-    elif rb < 10:
-        add(f"Low repeat buyer rate {rb}%", -3)
+    _flag(add, "Shop license", s.get("license_on_file"), W_LICENSE, "on file", "not confirmed", 100, 35)
+    _flag(add, "Invoices", s.get("invoice"), W_INVOICE, "offered", "not offered", 100, 40)
+    _flag(add, "Quick refund", s.get("quick_refund"), W_REFUND, "offered", "not offered", 100, 45)
+    _flag(add, "Factory address", s.get("factory_on_file"), W_FACTORY, "on file", "not on file", 100, 40)
+
+    booth = s.get("market_booth")
+    if booth:
+        shown = booth if len(booth) <= 42 else booth[:42] + "…"
+        add(f"Wholesale booth: {shown} → 100/100", 100, W_BOOTH)
     else:
-        add(f"Repeat buyer rate {rb}%", 0)
+        add("Wholesale booth: not available", None, W_BOOTH)
 
-    d = s.get("disputes")
-    if d is None:
-        reasons.append(("Dispute history: not available", 0))
-    elif d == "high":
-        add("High dispute rate", -10)
-    elif d == "medium":
-        add("Some disputes reported", -3)
+    avg = s.get("review_avg")
+    if avg is None:
+        add("Review average: not available", None, W_REVIEWS)
     else:
-        add("Low dispute rate", 2)
+        mark = max(0, min(100, round(avg / 5 * 100)))
+        add(f"Review average: {avg:g}/5 → {mark}/100", mark, W_REVIEWS)
 
-    return max(0, min(100, score)), reasons
+    deals = s.get("listing_deals")
+    if deals is None:
+        add("Completed deals on this listing: not available", None, W_DEALS)
+    else:
+        mark = _deal_score(deals)
+        add(f"Completed deals on this listing: {deals:,} → {mark}/100", mark, W_DEALS)
+
+    units = s.get("listing_units_sold")
+    if units is None:
+        add("Units sold on this listing: not available", None, W_UNITS)
+    else:
+        mark = _deal_score(units)
+        add(f"Units sold on this listing: {units:,} → {mark}/100", mark, W_UNITS)
+
+    _flag(add, "Online ordering", s.get("online_order"), W_ONLINE, "offered", "not offered", 80, 50)
+
+    badges = s.get("badges")
+    if not badges:
+        add("Badges: not available", None, W_BADGES)
+    else:
+        mark = _badge_score(badges)
+        add(f"Badges: {', '.join(badges)} → {mark}/100", mark, W_BADGES)
+
+    response = s.get("response_rate")
+    if response is None:
+        add("Response rate: not available", None, W_RESPONSE)
+    else:
+        mark = max(0, min(100, round(response)))
+        add(f"Response rate: {response:g}% → {mark}/100", mark, W_RESPONSE)
+
+    repeat = s.get("repeat_buyer_rate")
+    if repeat is None:
+        add("Repeat buyers: not available", None, W_REPEAT)
+    else:
+        mark = _repeat_score(repeat)
+        add(f"Repeat buyers: {repeat:g}% → {mark}/100", mark, W_REPEAT)
+
+    disputes = s.get("disputes")
+    dispute_mark = {"low": 90, "medium": 55, "high": 20}.get(disputes)
+    if dispute_mark is None:
+        add("Dispute history: not available", None, W_DISPUTES)
+    else:
+        add(f"Dispute history: {disputes} → {dispute_mark}/100", dispute_mark, W_DISPUTES)
+
+    known = sum(1 for _, factor in reasons if factor is not None)
+    if known < MIN_KNOWN_FACTORS or weight == 0:
+        return None, [("Not enough supplier data to score this seller yet", None)] + reasons
+    return round(weighted / weight), reasons
+
+
+def _flag(add, label, value, w, yes, no, yes_mark, no_mark):
+    if value is True:
+        add(f"{label}: {yes} → {yes_mark}/100", yes_mark, w)
+    elif value is False:
+        add(f"{label}: {no} → {no_mark}/100", no_mark, w)
+    else:
+        add(f"{label}: not available", None, w)
 
 
 def score_colour(score):
