@@ -49,45 +49,39 @@ a.plain {{color:inherit; text-decoration:none;}}
 .rh-q {{font-size:1.5rem; font-weight:800; margin:.3rem 0 0; line-height:1.2; word-break:break-word;}}
 .rh-sub {{color:#6b7280; font-size:.9rem;}}
 
-/* ---------- best price card */
-.best {{border:1px solid rgba(128,128,128,.25); border-radius:20px; padding:20px 18px 10px;
-        background: var(--secondary-background-color, #fafafa); margin:.6rem 0 1rem;}}
-.eyebrow {{text-transform:uppercase; letter-spacing:.08em; font-size:.72rem; font-weight:700; color:#6b7280;}}
-.best-price {{color:{VERMILION}; font-weight:900; font-size:clamp(2.8rem, 15vw, 4.2rem); line-height:1;
-              margin:.25rem 0 .35rem; letter-spacing:-.02em;}}
-.best-price .per {{font-size:1rem; font-weight:600; color:#6b7280; letter-spacing:0; margin-left:4px;}}
-.best-line {{display:flex; align-items:center; gap:8px; flex-wrap:wrap; font-size:1.05rem; font-weight:700;}}
-.save {{background:{VERMILION}; color:#fff; border-radius:999px; padding:4px 12px; font-size:.9rem;
-        font-weight:800;}}
-.save-sub {{color:#6b7280; font-size:.85rem; margin-top:.35rem;}}
+/* ---------- compact rows that stay side by side on phones (marked with .nowrap) */
+div[data-testid="stHorizontalBlock"]:has(.nowrap) {{flex-wrap:nowrap !important; gap:.6rem;}}
+div[data-testid="stHorizontalBlock"]:has(.nowrap) > div {{min-width:0 !important; width:auto !important;
+    flex:1 1 0 !important;}}
+div[data-testid="stHorizontalBlock"]:has(.nowrap) > div:last-child {{flex:0 0 min(40%, 190px) !important;}}
+.nowrap {{display:none;}}
+div[data-testid="stElementContainer"]:has(> div[data-testid="stMarkdown"] .nowrap) {{display:none;}}
 
-/* ---------- range bar */
-.range {{position:relative; margin:22px 4px 6px; height:26px;}}
-.range .track {{position:absolute; top:11px; left:0; right:0; height:4px; border-radius:4px;
-               background:linear-gradient(90deg, {VERMILION} 0%, #d1d5db 35%, #d1d5db 100%);}}
-.range .pt {{position:absolute; top:6px; width:14px; height:14px; margin-left:-7px; border-radius:50%;
-            border:2px solid #fff; box-shadow:0 0 0 1px rgba(0,0,0,.15);}}
-.range .pt.lowest {{top:4px; width:18px; height:18px; margin-left:-9px; border:2px solid #fff;
-                 box-shadow:0 0 0 2px {VERMILION}; z-index:2;}}
-.rlabels {{display:flex; justify-content:space-between; font-size:.78rem; color:#6b7280; margin:4px 0 8px;}}
-.rlabels b {{color:{VERMILION};}}
-
-/* ---------- platform rows: details on hover (desktop) / tap (mobile) */
-.plist {{margin-top:6px;}}
-.prow {{border-top:1px solid rgba(128,128,128,.18); outline:none; cursor:pointer;
-        -webkit-tap-highlight-color:transparent;}}
-.pmain {{display:flex; align-items:center; gap:10px; padding:13px 2px; min-height:48px;}}
-.pname {{font-weight:600; flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}}
-.pname small {{font-weight:400; color:#6b7280;}}
-.pprice {{font-weight:800; font-variant-numeric:tabular-nums;}}
-.prow.is-best .pprice {{color:{VERMILION};}}
-.chev {{color:#9ca3af; transition:transform .2s; font-size:.9rem;}}
-.pmore {{max-height:0; overflow:hidden; transition:max-height .25s ease; font-size:.88rem; color:#4b5563;}}
-.pmore-in {{padding:0 2px 14px 22px; line-height:1.55;}}
-.pmore a {{color:{VERMILION}; font-weight:700; text-decoration:none;}}
-.prow:hover .pmore, .prow:focus .pmore, .prow:focus-within .pmore {{max-height:320px;}}
-.prow:hover .chev, .prow:focus .chev, .prow:focus-within .chev {{transform:rotate(90deg);}}
-.foot {{font-size:.75rem; color:#9ca3af; padding:10px 0 4px;}}
+/* ---------- product list (Amazon-style) */
+.plist {{margin:.2rem 0 .6rem;}}
+a.pc {{display:flex; gap:12px; padding:14px 0; border-bottom:1px solid rgba(128,128,128,.18);
+       color:inherit !important; text-decoration:none !important; -webkit-tap-highlight-color:transparent;}}
+a.pc:hover .pc-title {{color:{VERMILION};}}
+.pc-img {{flex:none; width:96px; height:96px; border-radius:12px; object-fit:cover;}}
+.pc-body {{flex:1; min-width:0; display:flex; flex-direction:column; gap:5px;}}
+.pc-title {{font-weight:600; line-height:1.3; display:-webkit-box; -webkit-line-clamp:2;
+            -webkit-box-orient:vertical; overflow:hidden;}}
+.pc-meta {{display:flex; flex-wrap:wrap; gap:6px; align-items:center;}}
+.mk, .sc, .save, .best-tag {{display:inline-block; padding:1px 8px; border-radius:6px; font-size:.74rem;
+       font-weight:700; color:#fff; line-height:1.6;}}
+.save {{background:{VERMILION};}}
+.best-tag {{background:#111827;}}
+.pc-price {{font-size:1.5rem; font-weight:800; line-height:1.1; font-variant-numeric:tabular-nums;}}
+.pc-price small {{font-size:.75rem; font-weight:500; color:#6b7280; margin-left:4px;}}
+a.pc.top .pc-price {{color:{VERMILION};}}
+.pc-na {{font-size:1rem; font-weight:600; color:#9ca3af; font-style:italic;}}
+.pc-sub {{font-size:.78rem; color:#6b7280; line-height:1.35;}}
+.list-count {{font-size:.85rem; color:#6b7280; padding-top:.55rem;}}
+.foot {{font-size:.75rem; color:#9ca3af; padding:6px 0 4px; line-height:1.5;}}
+@media (min-width: 640px) {{
+  .pc-img {{width:128px; height:128px;}}
+  .pc-price {{font-size:1.7rem;}}
+}}
 
 /* ---------- delivered price receipt (mobile-first) */
 .rcpt {{margin:.4rem 0 .8rem;}}
@@ -261,15 +255,19 @@ def dot(platform):
     return f"<span class='dot' style='background:{PLATFORM_COLOURS.get(platform, '#999')}'></span>"
 
 
-def image_html(p, height=150):
+def _image_uri(p, square=False):
     emoji, colour = CATEGORY_STYLE.get(p.get("category") or "unknown", CATEGORY_STYLE["unknown"])
-    svg = f"""<svg xmlns='http://www.w3.org/2000/svg' width='300' height='220' viewBox='0 0 300 220'>
-<rect width='300' height='220' rx='14' fill='{colour}'/>
-<text x='150' y='125' font-size='86' text-anchor='middle'>{emoji}</text>
-<text x='150' y='200' font-size='15' text-anchor='middle' fill='#555' font-family='sans-serif'>Sample image</text>
+    w, h = (220, 220) if square else (300, 220)
+    svg = f"""<svg xmlns='http://www.w3.org/2000/svg' width='{w}' height='{h}' viewBox='0 0 {w} {h}'>
+<rect width='{w}' height='{h}' rx='14' fill='{colour}'/>
+<text x='{w/2}' y='{h/2 + 25}' font-size='86' text-anchor='middle'>{emoji}</text>
+<text x='{w/2}' y='{h - 20}' font-size='15' text-anchor='middle' fill='#555' font-family='sans-serif'>Sample image</text>
 </svg>"""
-    b64 = base64.b64encode(svg.encode("utf-8")).decode()
-    return (f"<img src='data:image/svg+xml;base64,{b64}' "
+    return "data:image/svg+xml;base64," + base64.b64encode(svg.encode("utf-8")).decode()
+
+
+def image_html(p, height=150):
+    return (f"<img src='{_image_uri(p)}' "
             f"style='width:100%;max-height:{height}px;object-fit:contain;border-radius:12px'/>")
 
 
@@ -382,6 +380,9 @@ div[data-testid="stTextInput"] > div {border-radius:16px;}
 div[data-testid="stForm"] {border:none; padding:0;}
 div[data-testid="stFormSubmitButton"] button {height:3.2rem; border-radius:14px; font-size:1.05rem;
              font-weight:700; background:#E34234; border-color:#E34234;}
+div[data-testid="stForm"] div[data-testid="stSelectbox"] label p {font-size:.78rem; color:#6b7280;}
+div[data-testid="stForm"] div[data-testid="stSelectbox"] div[data-baseweb="select"] > div {
+             min-height:2.3rem; font-size:.9rem;}
 .hero-foot {text-align:center; color:#9ca3af; font-size:.8rem; margin-top:1.4rem; line-height:1.8;}
 .hero-foot a {color:#6b7280;}
 </style>""",
@@ -393,10 +394,17 @@ div[data-testid="stFormSubmitButton"] button {height:3.2rem; border-radius:14px;
     with st.form("search_form", border=False):
         query = st.text_input("What are you looking for?", value=S.q, label_visibility="collapsed",
                               placeholder="What are you looking for?")
-        cur = st.selectbox("Currency", CURRENCIES, index=CURRENCIES.index(S.cur), format_func=currency_label)
+        c_country, c_cur = st.columns([1.7, 1])
+        with c_country:
+            st.markdown("<span class='nowrap'></span>", unsafe_allow_html=True)
+            countries = list(COUNTRIES)
+            country = st.selectbox("Deliver to", countries, index=countries.index(S.country))
+        with c_cur:
+            cur = st.selectbox("Currency", CURRENCIES, index=CURRENCIES.index(S.cur),
+                               format_func=lambda c: f"{SYMBOL[c].strip()} {c}" if SYMBOL[c].strip() != c else c)
         submitted = st.form_submit_button("Search", type="primary", use_container_width=True)
     if submitted:
-        go("results", q=query.strip(), cur=cur or S.cur, pid=None, cmp=[])
+        go("results", q=query.strip(), country=country, cur=cur or S.cur, pid=None, cmp=[])
         st.rerun()
 
     st.markdown(
@@ -424,101 +432,36 @@ def why_not(r):
     return "Delivered price not available — the listing has no weight, so shipping can't be estimated"
 
 
-def row_details(r, sym, extra=""):
-    """Hidden part of a row: shown on hover (desktop) or tap (mobile)."""
-    p, d = r["p"], r["d"]
-    q = d["qty"]
+def product_card(r, sym, top=False, saving=None):
+    """One product, Amazon-style: photo, English name, marketplace tag, supplier score,
+    final delivered price. The whole card opens the product page."""
+    p, d, score = r["p"], r["d"], r["score"]
+    plat = p.get("platform") or NA
+    tags = [f"<span class='mk' style='background:{PLATFORM_COLOURS.get(plat, '#6b7280')}'>{esc(plat)}</span>",
+            f"<span class='sc' style='background:{score_colour(score)}'>Supplier "
+            f"{score if score is not None else 'n/a'}{'/100' if score is not None else ''}</span>"]
     if r["ok"]:
-        taxes = d["duty"] + d["vat"] + d["clearance"]
-        costs = (f"Product {money(d['product'] / q, sym)} · Shipping {money((d['shipping'] + d['insurance']) / q, sym)} · "
-                 f"Duty, VAT &amp; customs {money(taxes / q, sym)} <span class='muted'>per unit, est.</span><br>"
-                 f"{d['mode_label']} · {d['transit_days']} days<br>")
+        price = (f"<div class='pc-price'>{money(d['per_unit'], sym)}<small>/unit delivered</small></div>")
+        moq = f"{p['moq']:,}" if p.get("moq") is not None else NA
+        sub = (f"{money(d['total'], sym, 0)} for {units(S.qty)} · {d['mode_label']}, "
+               f"{d['transit_days']} days · MOQ {moq}")
     else:
-        costs = f"<span class='na'>{why_not(r)}</span><br>"
-    moq = units(p["moq"]) if p.get("moq") is not None else f"<span class='na'>{NA}</span>"
-    return (f"<div class='pmore'><div class='pmore-in'>"
-            f"<b>{esc(p['title_en'])}</b><br>{costs}"
-            f"MOQ {moq} · {(p['supplier'].get('type') or NA).capitalize()} · {score_pill(r['score'])}<br>"
-            f"{extra}<a href='{link(view='detail', pid=p['id'])}' target='_self'>View details →</a>"
-            f"</div></div>")
-
-
-def offer_row(r, sym, label, is_best=False, extra=""):
-    price = money(r["d"]["per_unit"], sym) if r["ok"] else f"<span class='na'>{NA}</span>"
-    return (f"<div class='prow{' is-best' if is_best else ''}' tabindex='0'>"
-            f"<div class='pmain'>{dot(r['p']['platform'])}<span class='pname'>{label}</span>"
-            f"<span class='pprice'>{price}</span><span class='chev'>›</span></div>"
-            f"{row_details(r, sym, extra)}</div>")
-
-
-def best_card(rows, sym):
-    """Lowest delivered price + saving + range bar + one row per platform."""
-    by_platform = {}
-    for r in rows:
-        by_platform.setdefault(r["p"]["platform"], []).append(r)
-    priced = {}
-    for plat, rs in by_platform.items():
-        ok = [r for r in rs if r["ok"]]
-        if ok:
-            priced[plat] = min(ok, key=lambda r: r["d"]["per_unit"])
-
-    if not priced:
-        st.markdown("<div class='best'><div class='eyebrow'>Lowest delivered price</div>"
-                    f"<div class='best-price' style='font-size:2rem;color:#9ca3af'>{NA}</div>"
-                    "<div class='muted'>None of the matching offers has a delivered price at this quantity. "
-                    "Open “All offers” below to see why.</div></div>", unsafe_allow_html=True)
-        return
-
-    ranked = sorted(priced.items(), key=lambda kv: kv[1]["d"]["per_unit"])
-    best_plat, best = ranked[0]
-    worst_plat, worst = ranked[-1]
-    lo, hi = best["d"]["per_unit"], worst["d"]["per_unit"]
-
-    # saving vs the most expensive platform
-    if len(ranked) > 1 and hi > lo:
-        pct = (hi - lo) / hi * 100
-        save_badge = f"<span class='save'>Save {pct:.0f}%</span>"
-        save_sub = (f"{money(hi - lo, sym)} less per unit than {worst_plat} · "
-                    f"<b>{money((hi - lo) * S.qty, sym, 0)}</b> on {S.qty:,} units")
-    else:
-        save_badge = "<span class='tag tag-na'>Only platform with a price</span>"
-        save_sub = "No other platform to compare with for this search"
-
-    # range bar
-    span = hi - lo
-    pts = []
-    for plat, r in reversed(ranked):  # draw best last so it sits on top
-        x = 50 if span == 0 else 3 + 94 * (r["d"]["per_unit"] - lo) / span
-        cls = "pt lowest" if plat == best_plat else "pt"
-        pts.append(f"<span class='{cls}' style='left:{x:.1f}%;background:{PLATFORM_COLOURS[plat]}' "
-                   f"title='{plat}: {money(r['d']['per_unit'], sym)}'></span>")
-    range_html = (f"<div class='range'><div class='track'></div>{''.join(pts)}</div>"
-                  f"<div class='rlabels'><span><b>{money(lo, sym)}</b> lowest</span>"
-                  f"<span>highest {money(hi, sym)}</span></div>")
-
-    # one row per platform: priced first, then platforms with offers but no usable price
-    rows_html = []
-    for plat, r in ranked:
-        n_more = len(by_platform[plat]) - 1
-        extra = f"<span class='muted'>+{n_more} more offer{'s' if n_more > 1 else ''} on {plat}</span><br>" if n_more else ""
-        rows_html.append(offer_row(r, sym, plat, is_best=plat == best_plat, extra=extra))
-    for plat, rs in by_platform.items():
-        if plat not in priced:
-            rows_html.append(offer_row(rs[0], sym, plat))
-
-    st.markdown(
-        f"<div class='best'>"
-        f"<div class='eyebrow'>Lowest delivered price</div>"
-        f"<div class='best-price'>{money(lo, sym)}<span class='per'>/unit</span></div>"
-        f"<div class='best-line'>{dot(best_plat)}<span>{best_plat}</span>{save_badge}</div>"
-        f"<div class='save-sub'>{save_sub}</div>"
-        f"{range_html}"
-        f"<div class='plist'>{''.join(rows_html)}</div>"
-        f"<div class='foot'>Estimated price incl. shipping (cheapest method for {S.qty:,} units), duty, "
-        f"VAT and customs · {fx_line_short()} · Sample catalog · tap or hover a platform for details</div>"
-        f"</div>",
-        unsafe_allow_html=True,
-    )
+        price = f"<div class='pc-na'>Delivered price {NA}</div>"
+        sub = why_not(r)
+    badges = ""
+    if top:
+        badges = "<span class='best-tag'>Best price</span>"
+        if saving:
+            badges += f"<span class='save'>Save {saving:.0f}%</span>"
+    return (f"<a class='pc{' top' if top else ''}' href='{link(view='detail', pid=p['id'])}' target='_self'>"
+            f"<img class='pc-img' src='{_image_uri(p, square=True)}' alt=''/>"
+            f"<div class='pc-body'>"
+            f"<div class='pc-title'>{esc(p.get('title_en') or NA)}</div>"
+            f"<div class='pc-meta'>{''.join(tags)}</div>"
+            f"{price}"
+            + (f"<div class='pc-meta'>{badges}</div>" if badges else "")
+            + f"<div class='pc-sub'>{sub}</div>"
+            f"</div></a>")
 
 
 def page_results():
@@ -574,7 +517,7 @@ def page_results():
         unsafe_allow_html=True,
     )
     translation_strip(plan, reason, via_translation)
-    with st.popover("Quantity · country · currency · budget", use_container_width=False):
+    with st.popover("Change quantity, country, currency", use_container_width=False):
         bound(st.number_input, "Quantity", "qty", min_value=1, step=50)
         bound(st.selectbox, "Delivery country", "country", options=list(COUNTRIES))
         bound(st.selectbox, "Currency", "cur", options=CURRENCIES, format_func=currency_label)
@@ -588,32 +531,45 @@ def page_results():
         st.info("No results match the current filters or budget.")
         return
 
-    best_card(filtered, sym)
+    # ---- count + sort, side by side even on a phone
+    c_count, c_sort = st.columns([1, 1.25])
+    with c_count:
+        st.markdown("<span class='nowrap'></span>", unsafe_allow_html=True)
+        st.markdown(f"<div class='list-count'>{len(filtered)} products"
+                    + (f" · {len(over_budget)} over budget hidden" if over_budget else "") + "</div>",
+                    unsafe_allow_html=True)
+    with c_sort:
+        sort = st.selectbox("Sort by", ["Lowest price", "Best supplier score", "Lowest MOQ"],
+                            label_visibility="collapsed")
+    big = 10 ** 12
+    keyfn = {
+        "Lowest price": lambda r: r["d"]["per_unit"],
+        "Best supplier score": lambda r: -(r["score"] if r["score"] is not None else -1),
+        "Lowest MOQ": lambda r: r["p"]["moq"] if r["p"]["moq"] is not None else big,
+    }[sort]
+    # products without a delivered price at this quantity always go last
+    priced = sorted((r for r in filtered if r["ok"]), key=keyfn)
+    unpriced = [r for r in filtered if not r["ok"]]
 
-    # ---- everything else stays folded away
-    with st.expander(f"All {len(filtered)} offers"
-                     + (f" · {len(over_budget)} hidden over budget" if over_budget else "")):
-        sort = st.radio("Sort by", ["Lowest delivered price", "Highest reliability", "Lowest MOQ"],
-                        horizontal=True, label_visibility="collapsed")
-        big = 10 ** 12
-        if sort == "Lowest delivered price":
-            filtered.sort(key=lambda r: r["d"]["per_unit"] if r["ok"] else big)
-        elif sort == "Highest reliability":
-            filtered.sort(key=lambda r: -(r["score"] if r["score"] is not None else -1))
-        else:
-            filtered.sort(key=lambda r: r["p"]["moq"] if r["p"]["moq"] is not None else big)
-        best_id = min((r for r in filtered if r["ok"]), key=lambda r: r["d"]["per_unit"],
-                      default={"p": {"id": None}})["p"]["id"]
-        st.markdown(
-            "<div class='plist'>" + "".join(
-                offer_row(r, sym, f"{r['p']['platform']} <small>· {esc(r['p']['title_en'])}</small>",
-                          is_best=r["p"]["id"] == best_id)
-                for r in filtered) + "</div>",
-            unsafe_allow_html=True,
-        )
-        st.write("")
+    best = min(priced, key=lambda r: r["d"]["per_unit"], default=None)
+    saving = None
+    if best and len(priced) > 1:
+        hi = max(r["d"]["per_unit"] for r in priced)
+        saving = (hi - best["d"]["per_unit"]) / hi * 100 if hi > 0 else None
+
+    st.markdown(
+        "<div class='plist'>"
+        + "".join(product_card(r, sym, top=r is best, saving=saving) for r in priced + unpriced)
+        + "</div>"
+        f"<div class='foot'>Prices include shipping (cheapest method for {S.qty:,} units), duty, VAT and "
+        f"customs, estimated · {fx_line_short()} · Supplier scores are sample values for now · "
+        f"Sample catalog</div>",
+        unsafe_allow_html=True,
+    )
+
+    with st.expander("Compare products"):
         opts = {r["p"]["id"]: f"{r['p']['platform']} · {r['p']['title_en'][:40]}" for r in filtered}
-        picked = st.multiselect("Compare 2–3 offers", list(opts), default=[x for x in S.cmp if x in opts],
+        picked = st.multiselect("Pick 2–3 products", list(opts), default=[x for x in S.cmp if x in opts],
                                 format_func=opts.get, max_selections=3)
         if st.button("Compare", disabled=len(picked) < 2):
             go("compare", cmp=picked)
