@@ -42,7 +42,9 @@ def init_state():
         if qp.get("cur") in CURRENCIES:
             S.cur = qp["cur"]
         S.pid = qp.get("pid") or None
-        S.cmp = [x for x in (qp.get("cmp") or "").split(",") if get_product(x)][:3]
+        S.yiwugo_q = qp.get("yq") or ""
+        S.cmp = [x for x in (qp.get("cmp") or "").split(",")
+                 if get_product(x) or str(x).startswith("yw-")][:3]
     except (ValueError, TypeError):
         pass
     S.setdefault("pasted", None)
@@ -59,6 +61,8 @@ def state_params(**over):
         p["budget"] = S.budget
     if S.pid:
         p["pid"] = S.pid
+    if S.get("yiwugo_q"):
+        p["yq"] = S.yiwugo_q
     if S.cmp:
         p["cmp"] = ",".join(S.cmp)
     if S.conv and S.view == "chat":

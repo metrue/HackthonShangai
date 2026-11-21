@@ -5,7 +5,7 @@ import streamlit as st
 
 from components.state import S, go, link
 from components.ui import NA, cny, money, sample_banner
-from core.catalog import get_product
+from views.product import find_product
 from core.pricing import delivered
 from core.supplier_score import score_label, supplier_score
 
@@ -14,7 +14,7 @@ def page_compare():
     st.button("← Back to results", on_click=go, args=("results",))
     st.header("Compare")
     sample_banner()
-    prods = [get_product(pid) for pid in S.cmp if get_product(pid)]
+    prods = [p for p in (find_product(pid) for pid in S.cmp) if p]
     if len(prods) < 2:
         st.info("Pick 2 or 3 products under “Compare products” on the results page.")
         return
@@ -24,7 +24,8 @@ def page_compare():
     for p in prods:
         d = delivered(p, S.qty, S.country, S.cur)
         score, _ = supplier_score(p["supplier"])
-        data[f"{p['platform']} · {p['title_en'][:30]}…"] = {
+        title = (p.get("title_en") or p.get("title_cn") or NA)[:30]
+        data[f"{p['platform']} · {title}…"] = {
             "Delivered / unit (est.)": money(d["per_unit"], d["symbol"]),
             "Total delivered (est.)": money(d["total"], d["symbol"]),
             "Seller price / unit": cny(d["unit_cny"]),

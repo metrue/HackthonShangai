@@ -88,6 +88,9 @@ def kv_table(pairs):
 
 # ---------------------------------------------------------------------------- images and links
 def image_uri(p, square=False):
+    picture = p.get("picture")
+    if isinstance(picture, str) and picture.startswith("http"):
+        return picture
     emoji, colour = CATEGORY_STYLE.get(p.get("category") or "unknown", CATEGORY_STYLE["unknown"])
     w, h = (220, 220) if square else (300, 220)
     svg = f"""<svg xmlns='http://www.w3.org/2000/svg' width='{w}' height='{h}' viewBox='0 0 {w} {h}'>
@@ -109,7 +112,7 @@ def platform_search_url(platform, keywords):
         "1688": f"https://s.1688.com/selloffer/offer_search.htm?keywords={kw}",
         "Taobao": f"https://s.taobao.com/search?q={kw}",
         "JD": f"https://search.jd.com/Search?keyword={kw}",
-        "Yiwugo": "https://www.yiwugo.com/",
+        "Yiwugo": f"https://www.yiwugo.com/search?q={kw}",
     }.get(platform)
 
 

@@ -5,6 +5,7 @@ import streamlit as st
 from components.state import S, bound, go, link
 from components.ui import (NA, currency_label, esc, fx_line_short, image_uri,
                            messages_link, money, platform_search_url, platform_tag, tag, units)
+import yiwugo
 from core import query_translation
 from core.catalog import PLATFORMS, SELLER_TYPES, search
 from core.pricing import COUNTRIES, CURRENCIES, SYMBOL, delivered
@@ -22,6 +23,14 @@ def _cached_plan(query):
     if plan is None:
         raise _PlanUnavailable(reason)  # failures are not cached, so a fixed key works at once
     return plan
+
+
+@st.cache_data(ttl=600, show_spinner=False)
+def yiwugo_listings(query: str):
+    try:
+        return yiwugo.search(query)
+    except Exception:
+        return []
 
 
 def translated(query):
@@ -90,6 +99,10 @@ def product_card(r, sym, top=False, saving=None):
         moq = f"{p['moq']:,}" if p.get("moq") is not None else NA
         sub = (f"{money(d['total'], sym, 0)} for {units(S.qty)} · {d['mode_label']}, "
                f"{d['transit_days']} days · MOQ {moq}")
+    elif p.get("live") and p.get("tiers"):
+        shelf = sorted(p["tiers"])[0][1]
+        price = f"<div class='pc-price'>¥{shelf:,.2f}<small>/unit on Yiwugo</small></div>"
+        sub = "Listing price, before shipping and tax. No weight on the listing, so the delivered price is not available."
     else:
         price = f"<div class='pc-na'>Delivered price {NA}</div>"
         sub = why_not(r)
@@ -101,7 +114,7 @@ def product_card(r, sym, top=False, saving=None):
     return (f"<a class='pc{' top' if top else ''}' href='{link(view='detail', pid=p['id'])}' target='_self'>"
             f"<img class='pc-img' src='{image_uri(p, square=True)}' alt=''/>"
             f"<div class='pc-body'>"
-            f"<div class='pc-title'>{esc(p.get('title_en') or NA)}</div>"
+            f"<div class='pc-title'>{esc(p.get('title_en') or p.get('title_cn') or NA)}</div>"
             f"<div class='pc-meta'>{''.join(tags)}</div>"
             f"{price}"
             + (f"<div class='pc-meta'>{badges}</div>" if badges else "")
@@ -122,6 +135,14 @@ def page_results():
         via_translation = bool(base) and plan["detected_language"].lower() != "english"
     if not base:
         base = search(S.q)
+    if (S.q or "").strip():
+        zh = ((plan or {}).get("query_zh") or S.q).strip()
+        S.yiwugo_q = zh
+        with st.spinner("Reading Yiwugo listings…"):
+            live = yiwugo_listings(zh)
+        S.live_products = {item["id"]: item for item in live}
+        if live:
+            base = [item for item in base if item.get("platform") != "Yiwugo"] + live
     rows = enrich(base)
 
     # ---- sidebar filters (collapsed by default, out of the way on mobile)
@@ -139,7 +160,8 @@ def page_results():
 
     def keep(r):
         p = r["p"]
-        if p["platform"] not in f_platform or p["supplier"].get("type") not in f_type:
+        seller = p["supplier"].get("type")
+        if p["platform"] not in f_platform or (seller is not None and seller not in f_type):
             return False
         if f_score > 0 and (r["score"] is None or r["score"] < f_score):
             return False
@@ -212,7 +234,8 @@ def page_results():
     )
 
     with st.expander("Compare products"):
-        opts = {r["p"]["id"]: f"{r['p']['platform']} · {r['p']['title_en'][:40]}" for r in filtered}
+        opts = {r["p"]["id"]: f"{r['p']['platform']} · {(r['p'].get('title_en') or r['p'].get('title_cn') or NA)[:40]}"
+                for r in filtered}
         picked = st.multiselect("Pick 2–3 products", list(opts), default=[x for x in S.cmp if x in opts],
                                 format_func=opts.get, max_selections=3)
         if st.button("Compare", disabled=len(picked) < 2):

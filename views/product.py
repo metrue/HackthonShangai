@@ -9,6 +9,7 @@ from components.ui import (NA, cny, esc, fx_line, image_html, kv_table, receipt,
                            search_link, tag, units, val)
 from core import messages as M
 from core.catalog import get_product
+from views.results import yiwugo_listings
 from core.pricing import COUNTRIES, MODE_LABEL, SYMBOL, TRANSIT_DAYS, compare_modes, delivered, fx_rate
 from core.supplier_score import supplier_score
 
@@ -67,15 +68,17 @@ def render_detail(p, source="catalog"):
         c_img, c_info = st.columns([1, 2])
         with c_img:
             st.markdown(image_html(p, 260), unsafe_allow_html=True)
-            if source == "catalog":
+            if p.get("live"):
+                st.markdown(tag("Yiwugo listing"), unsafe_allow_html=True)
+            elif source == "catalog":
                 st.markdown(tag("Sample catalog"), unsafe_allow_html=True)
             else:
                 st.markdown(tag(f"Read from your {source}", "est"), unsafe_allow_html=True)
         with c_info:
-            st.markdown(f"### {esc(p.get('title_en')) or NA}")
-            if source != "catalog" and p.get("title_en"):
+            st.markdown(f"### {esc(p.get('title_en') or p.get('title_cn') or NA)}")
+            if source != "catalog" and not p.get("live") and p.get("title_en"):
                 st.markdown(tag("Translated title — approximate", "est"), unsafe_allow_html=True)
-            if p.get("title_cn"):
+            if p.get("title_cn") and p.get("title_en"):
                 st.markdown(f"<span class='muted'>Original title: {esc(p['title_cn'])}</span>",
                             unsafe_allow_html=True)
             moq = units(p["moq"]) if p.get("moq") is not None else None
@@ -198,11 +201,25 @@ def render_detail(p, source="catalog"):
                 st.link_button(f"Search similar items on {p['platform']} ↗", slink)
 
 
+def find_product(pid):
+    found = get_product(pid) or (S.get("live_products") or {}).get(pid)
+    if found or not str(pid or "").startswith("yw-"):
+        return found
+    query = (S.get("yiwugo_q") or S.q or "").strip()
+    if not query:
+        return None
+    with st.spinner("Reading the Yiwugo listing…"):
+        live = yiwugo_listings(query)
+    S.live_products = {item["id"]: item for item in live}
+    return S.live_products.get(pid)
+
+
 def page_detail():
-    p = get_product(S.pid)
+    p = find_product(S.pid)
     st.button("← Back to results", on_click=go, args=("results",))
     if not p:
         st.error("Product not found.")
         return
-    sample_banner()
-    render_detail(p, "catalog")
+    if not p.get("live"):
+        sample_banner()
+    render_detail(p, "catalog" if not p.get("live") else "live")
