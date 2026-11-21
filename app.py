@@ -14,6 +14,7 @@ from pricing import (COUNTRIES, CURRENCIES, CURRENCY_NAMES, DUTY, MODE_LABEL, SY
                      compare_modes, delivered, fx_rate, refresh_fx, score_colour, score_label,
                      supplier_score)
 from translation_agent import plan_search
+import yiwugo
 
 st.set_page_config(page_title="SourceScan – China sourcing search", page_icon="🔎", layout="centered",
                    initial_sidebar_state="collapsed")
@@ -256,6 +257,9 @@ def dot(platform):
 
 
 def _image_uri(p, square=False):
+    picture = p.get("picture")
+    if isinstance(picture, str) and picture.startswith("http"):
+        return picture
     emoji, colour = CATEGORY_STYLE.get(p.get("category") or "unknown", CATEGORY_STYLE["unknown"])
     w, h = (220, 220) if square else (300, 220)
     svg = f"""<svg xmlns='http://www.w3.org/2000/svg' width='{w}' height='{h}' viewBox='0 0 {w} {h}'>
@@ -277,7 +281,7 @@ def platform_search_url(platform, keywords):
         "1688": f"https://s.1688.com/selloffer/offer_search.htm?keywords={kw}",
         "Taobao": f"https://s.taobao.com/search?q={kw}",
         "JD": f"https://search.jd.com/Search?keyword={kw}",
-        "Yiwugo": "https://www.yiwugo.com/",
+        "Yiwugo": f"https://www.yiwugo.com/search?q={kw}",
     }.get(platform)
 
 
@@ -445,6 +449,10 @@ def product_card(r, sym, top=False, saving=None):
         moq = f"{p['moq']:,}" if p.get("moq") is not None else NA
         sub = (f"{money(d['total'], sym, 0)} for {units(S.qty)} · {d['mode_label']}, "
                f"{d['transit_days']} days · MOQ {moq}")
+    elif p.get("live") and p.get("tiers"):
+        shelf = sorted(p["tiers"])[0][1]
+        price = f"<div class='pc-price'>¥{shelf:,.2f}<small>/unit on Yiwugo</small></div>"
+        sub = "Listing price, before shipping and tax. No weight on the listing, so the delivered price is not available."
     else:
         price = f"<div class='pc-na'>Delivered price {NA}</div>"
         sub = why_not(r)
@@ -456,7 +464,7 @@ def product_card(r, sym, top=False, saving=None):
     return (f"<a class='pc{' top' if top else ''}' href='{link(view='detail', pid=p['id'])}' target='_self'>"
             f"<img class='pc-img' src='{_image_uri(p, square=True)}' alt=''/>"
             f"<div class='pc-body'>"
-            f"<div class='pc-title'>{esc(p.get('title_en') or NA)}</div>"
+            f"<div class='pc-title'>{esc(p.get('title_en') or p.get('title_cn') or NA)}</div>"
             f"<div class='pc-meta'>{''.join(tags)}</div>"
             f"{price}"
             + (f"<div class='pc-meta'>{badges}</div>" if badges else "")
@@ -478,6 +486,13 @@ def page_results():
         via_translation = bool(base) and plan["detected_language"].lower() != "english"
     if not base:
         base = search(S.q)
+    if (S.q or "").strip():
+        zh = ((plan or {}).get("query_zh") or S.q).strip()
+        with st.spinner("Reading Yiwugo listings…"):
+            live = _yiwugo_listings(zh)
+        S.live_products = {item["id"]: item for item in live}
+        if live:
+            base = [item for item in base if item.get("platform") != "Yiwugo"] + live
     rows = enrich(base)
 
     # ---- sidebar filters (collapsed by default, out of the way on mobile)
@@ -495,7 +510,8 @@ def page_results():
 
     def keep(r):
         p = r["p"]
-        if p["platform"] not in f_platform or p["supplier"].get("type") not in f_type:
+        seller = p["supplier"].get("type")
+        if p["platform"] not in f_platform or (seller is not None and seller not in f_type):
             return False
         if f_score > 0 and (r["score"] is None or r["score"] < f_score):
             return False
@@ -642,15 +658,17 @@ def render_detail(p, source="catalog"):
         c_img, c_info = st.columns([1, 2])
         with c_img:
             st.markdown(image_html(p, 260), unsafe_allow_html=True)
-            if source == "catalog":
+            if p.get("live"):
+                st.markdown(tag("Yiwugo listing"), unsafe_allow_html=True)
+            elif source == "catalog":
                 st.markdown(tag("Sample catalog"), unsafe_allow_html=True)
             else:
                 st.markdown(tag("Extracted from pasted text", "est"), unsafe_allow_html=True)
         with c_info:
-            st.markdown(f"### {p.get('title_en') or NA}")
-            if source != "catalog" and p.get("title_en"):
+            st.markdown(f"### {esc(p.get('title_en') or p.get('title_cn') or NA)}")
+            if source != "catalog" and not p.get("live") and p.get("title_en"):
                 st.markdown(tag("Glossary translation — approximate", "est"), unsafe_allow_html=True)
-            if p.get("title_cn"):
+            if p.get("title_cn") and p.get("title_en") and p["title_cn"] != p["title_en"]:
                 st.markdown(f"<span class='muted'>Original title: {esc(p['title_cn'])}</span>",
                             unsafe_allow_html=True)
             moq = units(p["moq"]) if p.get("moq") is not None else None
@@ -807,14 +825,27 @@ def render_detail(p, source="catalog"):
                 st.link_button(f"Search similar items on {p['platform']} ↗", slink)
 
 
+def find_product(pid):
+    return get_product(pid) or (S.get("live_products") or {}).get(pid)
+
+
+@st.cache_data(ttl=600, show_spinner=False)
+def _yiwugo_listings(query: str):
+    try:
+        return yiwugo.search(query)
+    except Exception:
+        return []
+
+
 def page_detail():
-    p = get_product(S.pid)
+    p = find_product(S.pid)
     st.button("← Back to results", on_click=go, args=("results",))
     if not p:
         st.error("Product not found.")
         return
-    sample_banner()
-    render_detail(p, "catalog")
+    if not p.get("live"):
+        sample_banner()
+    render_detail(p, "catalog" if not p.get("live") else "live")
 
 
 # =========================================================================== COMPARE
